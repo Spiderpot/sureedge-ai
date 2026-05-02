@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 
-// Routes that require authentication
-const PROTECTED_ROUTES = [
+const PROTECTED = [
   '/api/surebet',
   '/api/ai',
   '/api/risk',
@@ -15,53 +13,92 @@ const PROTECTED_ROUTES = [
   '/api/auth/refresh',
 ];
 
-// Routes exempt from auth (public)
-const PUBLIC_ROUTES = [
+const PUBLIC = [
   '/api/auth/login',
   '/api/auth/register',
   '/api/health',
 ];
 
-function getSecret(): Uint8Array {
-  const secret = process.env.JWT_SECRET;
-  if (!secret) throw new Error('JWT_SECRET not configured');
-  return new TextEncoder().encode(secret);
+// Edge-compatible JWT verification (no jose needed)
+// Verifies HS256 JWT signature using Web Crypto API (available in Edge)
+async function verifyJWT(token: string, secret: string): Promise<Record<string, unknown> | null> {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+
+    const [headerB64, payloadB64, sigB64] = parts;
+
+    // Verify signature
+    const enc = new TextEncoder();
+    const keyData = enc.encode(secret);
+    const signingInput = enc.encode(`${headerB64}.${payloadB64}`);
+
+    const cryptoKey = await crypto.subtle.importKey(
+      'raw', keyData,
+      { name: 'HMAC', hash: 'SHA-256' },
+      false, ['verify']
+    );
+
+    // Decode base64url signature
+    const sigBytes = Uint8Array.from(
+      atob(sigB64.replace(/-/g, '+').replace(/_/g, '/')),
+      c => c.charCodeAt(0)
+    );
+
+    const valid = await crypto.subtle.verify('HMAC', cryptoKey, sigBytes, signingInput);
+    if (!valid) return null;
+
+    // Decode payload
+    const payloadJson = atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/'));
+    const payload = JSON.parse(payloadJson) as Record<string, unknown>;
+
+    // Check expiry
+    if (payload.exp && typeof payload.exp === 'number' && payload.exp < Date.now() / 1000) {
+      return null;
+    }
+
+    return payload;
+  } catch {
+    return null;
+  }
 }
 
 function getToken(request: NextRequest): string | null {
-  const cookieHeader = request.headers.get('cookie');
-  if (!cookieHeader) return null;
-  const match = cookieHeader.match(/(?:^|;\s*)token=([^;]+)/);
+  const cookie = request.headers.get('cookie');
+  if (!cookie) return null;
+  const match = cookie.match(/(?:^|;\s*)token=([^;]+)/);
   return match ? decodeURIComponent(match[1]) : null;
 }
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  const isProtected = PROTECTED_ROUTES.some(r => pathname.startsWith(r));
-  const isPublic    = PUBLIC_ROUTES.some(r => pathname.startsWith(r));
+  const isProtected = PROTECTED.some(r => pathname.startsWith(r));
+  const isPublic    = PUBLIC.some(r => pathname.startsWith(r));
 
-  if (!isProtected || isPublic) {
-    return NextResponse.next();
-  }
+  if (!isProtected || isPublic) return NextResponse.next();
 
   const token = getToken(request);
   if (!token) {
     return NextResponse.json({ success: false, error: 'Authentication required' }, { status: 401 });
   }
 
-  try {
-    const { payload } = await jwtVerify(token, getSecret());
-    // Attach user info to headers for downstream route handlers
-    const requestHeaders = new Headers(request.headers);
-    requestHeaders.set('x-user-id',   String(payload.id ?? ''));
-    requestHeaders.set('x-user-role', String(payload.role ?? ''));
-    requestHeaders.set('x-user-email', String(payload.email ?? ''));
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    return NextResponse.json({ success: false, error: 'Server misconfigured' }, { status: 500 });
+  }
 
-    return NextResponse.next({ request: { headers: requestHeaders } });
-  } catch {
+  const payload = await verifyJWT(token, secret);
+  if (!payload) {
     return NextResponse.json({ success: false, error: 'Invalid or expired token' }, { status: 401 });
   }
+
+  const headers = new Headers(request.headers);
+  headers.set('x-user-id',    String(payload.id    ?? ''));
+  headers.set('x-user-role',  String(payload.role  ?? ''));
+  headers.set('x-user-email', String(payload.email ?? ''));
+
+  return NextResponse.next({ request: { headers } });
 }
 
 export const config = {

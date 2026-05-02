@@ -74,7 +74,7 @@ export default function Home() {
     checkAuth();
   }, [setUser]);
 
-  const handleLogout = useCallback(async () => {
+  const _handleLogout = useCallback(async () => {
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
     } catch {

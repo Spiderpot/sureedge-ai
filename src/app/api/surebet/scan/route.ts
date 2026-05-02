@@ -47,7 +47,7 @@ function detectArbitrage(event: OddsAPIEvent) {
       if (!market2) continue;
 
       // Find best odds for each outcome across the two bookmakers
-      const allOutcomes = [...market1.outcomes, ...market2.outcomes];
+      
       const outcomeMap: Record<string, { odds: number; bookmaker: string; title: string }> = {};
 
       for (const bm of [bm1, bm2]) {
