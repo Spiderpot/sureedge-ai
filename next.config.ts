@@ -3,6 +3,9 @@ import type { NextConfig } from 'next';
 const nextConfig: NextConfig = {
   ...(process.env.VERCEL ? {} : { output: 'standalone' }),
 
+  // Force webpack bundler - Turbopack causes pages/_document conflicts on Vercel
+  turbopack: undefined,
+
   poweredByHeader: false,
   reactStrictMode: true,
 
