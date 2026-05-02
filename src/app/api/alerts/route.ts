@@ -4,6 +4,13 @@ import { verifyToken, getTokenFromCookies } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { success, error } from '@/lib/api-response';
 
+// Mirror of Prisma AlertType enum — keep in sync with schema.prisma
+type AlertType = 'SUREBET' | 'ODDS_DROP' | 'LIMIT_REACHED' | 'ACCOUNT_FLAGGED' | 'SYSTEM';
+const VALID_ALERT_TYPES: AlertType[] = ['SUREBET', 'ODDS_DROP', 'LIMIT_REACHED', 'ACCOUNT_FLAGGED', 'SYSTEM'];
+
+function isAlertType(v: string): v is AlertType {
+  return VALID_ALERT_TYPES.includes(v as AlertType);
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,14 +21,16 @@ export async function GET(request: NextRequest) {
     if (!payload) return error('Invalid token', 401);
 
     const { searchParams } = new URL(request.url);
-    const type = searchParams.get('type');
+    const typeParam  = searchParams.get('type');
     const unreadOnly = searchParams.get('unread') === 'true';
+
+    const alertType = typeParam && isAlertType(typeParam) ? typeParam : undefined;
 
     const alerts = await db.alert.findMany({
       where: {
         userId: payload.id,
-        ...(type ? { type: type as string } : {}),
-        ...(unreadOnly ? { isRead: false } : {}),
+        ...(alertType  ? { type: alertType } : {}),
+        ...(unreadOnly ? { isRead: false }   : {}),
       },
       orderBy: { createdAt: 'desc' },
       take: 50,
@@ -46,18 +55,19 @@ export async function POST(request: NextRequest) {
     const payload = await verifyToken(token);
     if (!payload) return error('Invalid token', 401);
 
-    const { type, title, message } = await request.json();
+    const body = await request.json() as { type?: string; title?: string; message?: string };
+    const { type, title, message } = body;
+
     if (!type || !title || !message) {
       return error('Type, title, and message are required', 400);
     }
 
+    if (!isAlertType(type)) {
+      return error(`Invalid alert type. Valid types: ${VALID_ALERT_TYPES.join(', ')}`, 400);
+    }
+
     const alert = await db.alert.create({
-      data: {
-        userId: payload.id,
-        type: type as string,
-        title,
-        message,
-      },
+      data: { userId: payload.id, type, title, message },
     });
 
     return success(alert, 201);
