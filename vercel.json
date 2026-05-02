@@ -1,8 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "buildCommand": "npx prisma generate && next build",
+  "buildCommand": "npx prisma generate && NEXT_TURBOPACK=0 next build",
   "installCommand": "npm ci",
+  "env": {
+    "NEXT_TURBOPACK": "0"
+  },
   "functions": {
     "src/app/api/surebet/scan/route.ts": { "maxDuration": 30 },
     "src/app/api/ai/advisor/route.ts":   { "maxDuration": 30 },

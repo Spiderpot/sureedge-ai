@@ -3,11 +3,13 @@ import type { NextConfig } from 'next';
 const nextConfig: NextConfig = {
   ...(process.env.VERCEL ? {} : { output: 'standalone' }),
 
-  // Force webpack bundler - Turbopack causes pages/_document conflicts on Vercel
-  turbopack: undefined,
-
   poweredByHeader: false,
   reactStrictMode: true,
+
+  // Disable Turbopack for production builds — fixes /404 prerender crash
+  // Turbopack is dev-only, webpack is used for production by default in Next.js 14
+  // In 15.x Vercel forces Turbopack — we override it here
+  experimental: {},
 
   images: {
     unoptimized: true,
