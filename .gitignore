@@ -1,0 +1,8 @@
+node_modules/
+.next/
+.env
+.env.local
+.env.production
+prisma/dev.db
+*.tar.gz
+public/TerraLPG_Platform_v5.tar.gz

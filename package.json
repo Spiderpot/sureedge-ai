@@ -1,0 +1,54 @@
+{
+  "name": "sureedge-ai",
+  "version": "2.4.1",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "lint": "eslint",
+    "postinstall": "prisma generate",
+    "db:push": "npx prisma db push",
+    "db:seed": "npx ts-node --compiler-options {\"module\":\"CommonJS\"} prisma/seed.ts",
+    "db:setup": "npx prisma db push && npx prisma db seed",
+    "db:studio": "npx prisma studio",
+    "db:migrate": "npx prisma migrate dev",
+    "vercel:link": "vercel link",
+    "vercel:deploy": "vercel --prod",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "type-check": "tsc --noEmit",
+    "build:docker": "prisma generate && next build",
+    "vercel:env": "vercel env pull .env.local"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.3",
+    "bcryptjs": "^2.4.3",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.38.0",
+    "jose": "^6.2.2",
+    "lucide-react": "^1.8.0",
+    "next": "15.3.1",
+    "prisma": "^6.19.3",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "recharts": "^3.8.1",
+    "uuid": "^13.0.0",
+    "zustand": "^5.0.12",
+    "@tailwindcss/postcss": "^4",
+    "tailwindcss": "^4"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/uuid": "^10.0.0",
+    "eslint": "^9",
+    "eslint-config-next": "15.3.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5"
+  },
+  "prisma": {
+    "seed": "npx ts-node --compiler-options {\"module\":\"CommonJS\"} prisma/seed.ts"
+  }
+}

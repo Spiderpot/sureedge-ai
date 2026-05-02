@@ -1,0 +1,24 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "buildCommand": "npx prisma generate && next build",
+  "installCommand": "npm ci",
+  "env": {
+    "TURBOPACK": "0"
+  },
+  "functions": {
+    "src/app/api/surebet/scan/route.ts": { "maxDuration": 30 },
+    "src/app/api/ai/advisor/route.ts":   { "maxDuration": 30 },
+    "src/app/api/odds/live/route.ts":    { "maxDuration": 15 }
+  },
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options",        "value": "DENY" },
+        { "key": "Referrer-Policy",        "value": "strict-origin-when-cross-origin" }
+      ]
+    }
+  ]
+}
