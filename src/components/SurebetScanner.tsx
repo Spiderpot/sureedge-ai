@@ -16,6 +16,7 @@ interface SurebetOutcome {
   impliedProb: number;
   nigeriaAccess?: boolean;
   depositMethod?: string;
+  bookmakerUrl?: string;
 }
 
 interface Surebet {
@@ -162,22 +163,33 @@ function SurebetCard({ sb, rank, onCalculate }: { sb: Surebet; rank: number; onC
             <div className="flex items-center gap-2">
               <div>
                 <div className="text-xs text-gray-400">
-                  {o.bookmaker}
+                  {o.bookmakerUrl ? (
+                    <a href={o.bookmakerUrl} target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:text-emerald-300 underline">
+                      {o.bookmaker}
+                    </a>
+                  ) : o.bookmaker}
                   {o.nigeriaAccess !== undefined && (
                     <span className={`ml-1.5 text-[9px] px-1 py-0.5 rounded ${o.nigeriaAccess ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/15 text-red-400'}`}>
                       {o.nigeriaAccess ? 'NG \u2713' : 'VPN'}
                     </span>
                   )}
                 </div>
-                <div className="text-sm font-medium text-white">{o.outcome}</div>
+                <div className="text-sm font-medium text-white">{o.outcome} @ <span className="text-emerald-400 font-bold">{o.odds.toFixed(2)}</span></div>
                 {o.nigeriaAccess && o.depositMethod && (
                   <div className="text-[9px] text-gray-600">{o.depositMethod}</div>
                 )}
               </div>
             </div>
-            <div className="text-right">
-              <div className="text-sm font-bold text-white">{o.odds.toFixed(2)}</div>
-              <div className="text-[10px] text-gray-500">{o.impliedProb}%</div>
+            <div className="flex items-center gap-2">
+              {o.bookmakerUrl && (
+                <a href={o.bookmakerUrl} target="_blank" rel="noopener noreferrer"
+                  className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded hover:bg-emerald-500/30 transition-colors">
+                  Go to Site
+                </a>
+              )}
+              <div className="text-right">
+                <div className="text-[10px] text-gray-500">{o.impliedProb}%</div>
+              </div>
             </div>
           </div>
         ))}

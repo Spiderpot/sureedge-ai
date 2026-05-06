@@ -21,30 +21,35 @@ const ALL_SPORTS = [
 ];
 
 // Bookmakers accessible from Nigeria — no VPN needed
-const NIGERIA_BOOKMAKERS: Record<string, { name: string; deposit: string; accessible: boolean }> = {
-  '1xbet':        { name: '1xBet',      deposit: 'Naira, bank transfer, USSD', accessible: true },
-  'onexbet':      { name: '1xBet',      deposit: 'Naira, bank transfer, USSD', accessible: true },
-  'betway':       { name: 'Betway',     deposit: 'Naira, bank transfer, card',  accessible: true },
-  '22bet':        { name: '22Bet',      deposit: 'Naira, bank transfer, crypto', accessible: true },
-  'marathonbet':  { name: 'MarathonBet', deposit: 'Crypto, e-wallets',          accessible: true },
-  'pinnacle':     { name: 'Pinnacle',   deposit: 'Crypto, agents',              accessible: true },
-  'sport888':     { name: '888sport',   deposit: 'E-wallets',                   accessible: true },
-  'betonlineag':  { name: 'BetOnline',  deposit: 'Crypto',                      accessible: true },
-  'bovada':       { name: 'Bovada',     deposit: 'Crypto',                      accessible: true },
-  'mybookieag':   { name: 'MyBookie',   deposit: 'Crypto',                      accessible: true },
-  'betus':        { name: 'BetUS',      deposit: 'Crypto',                      accessible: true },
-  'williamhill':  { name: 'William Hill', deposit: 'VPN required',              accessible: false },
-  'betfair':      { name: 'Betfair',    deposit: 'VPN required',                accessible: false },
-  'tipico':       { name: 'Tipico',     deposit: 'VPN required',                accessible: false },
-  'draftkings':   { name: 'DraftKings', deposit: 'US only',                     accessible: false },
-  'fanduel':      { name: 'FanDuel',    deposit: 'US only',                     accessible: false },
-  'betmgm':       { name: 'BetMGM',     deposit: 'US only',                     accessible: false },
-  'caesars':      { name: 'Caesars',     deposit: 'US only',                     accessible: false },
+const NIGERIA_BOOKMAKERS: Record<string, { name: string; deposit: string; accessible: boolean; url: string }> = {
+  '1xbet':        { name: '1xBet',      deposit: 'Naira, bank transfer, USSD', accessible: true, url: 'https://1xbet.ng' },
+  'onexbet':      { name: '1xBet',      deposit: 'Naira, bank transfer, USSD', accessible: true, url: 'https://1xbet.ng' },
+  'betway':       { name: 'Betway',     deposit: 'Naira, bank transfer, card',  accessible: true, url: 'https://betway.com.ng' },
+  '22bet':        { name: '22Bet',      deposit: 'Naira, bank transfer, crypto', accessible: true, url: 'https://22bet.ng' },
+  'marathonbet':  { name: 'MarathonBet', deposit: 'Crypto, e-wallets',          accessible: true, url: 'https://marathonbet.com' },
+  'pinnacle':     { name: 'Pinnacle',   deposit: 'Crypto, agents',              accessible: true, url: 'https://pinnacle.com' },
+  'sport888':     { name: '888sport',   deposit: 'E-wallets',                   accessible: true, url: 'https://888sport.com' },
+  'betonlineag':  { name: 'BetOnline',  deposit: 'Crypto',                      accessible: true, url: 'https://betonline.ag' },
+  'bovada':       { name: 'Bovada',     deposit: 'Crypto',                      accessible: true, url: 'https://bovada.lv' },
+  'mybookieag':   { name: 'MyBookie',   deposit: 'Crypto',                      accessible: true, url: 'https://mybookie.ag' },
+  'betus':        { name: 'BetUS',      deposit: 'Crypto',                      accessible: true, url: 'https://betus.com.pa' },
+  'williamhill':  { name: 'William Hill', deposit: 'VPN required',              accessible: false, url: '' },
+  'betfair':      { name: 'Betfair',    deposit: 'VPN required',                accessible: false, url: '' },
+  'tipico':       { name: 'Tipico',     deposit: 'VPN required',                accessible: false, url: '' },
+  'draftkings':   { name: 'DraftKings', deposit: 'US only',                     accessible: false, url: '' },
+  'fanduel':      { name: 'FanDuel',    deposit: 'US only',                     accessible: false, url: '' },
+  'betmgm':       { name: 'BetMGM',     deposit: 'US only',                     accessible: false, url: '' },
+  'caesars':      { name: 'Caesars',     deposit: 'US only',                     accessible: false, url: '' },
 };
 
 function isNigeriaAccessible(bookmakerKey: string): boolean {
   const bm = NIGERIA_BOOKMAKERS[bookmakerKey.toLowerCase()];
   return bm ? bm.accessible : false; // unknown bookmakers default to not accessible
+}
+
+function getBookmakerUrl(bookmakerKey: string): string {
+  const bm = NIGERIA_BOOKMAKERS[bookmakerKey.toLowerCase()];
+  return bm ? bm.url : '';
 }
 
 function getDepositMethod(bookmakerKey: string): string {
@@ -112,6 +117,7 @@ function detectArbitrage(event: Event) {
         impliedProb:   parseFloat(((1 / o.odds) * 100).toFixed(2)),
         nigeriaAccess: isNigeriaAccessible(o.bookmaker),
         depositMethod: getDepositMethod(o.bookmaker),
+        bookmakerUrl:  getBookmakerUrl(o.bookmaker),
       })),
       status:     'active',
       detectedAt: new Date().toISOString(),
@@ -166,15 +172,18 @@ async function handleScan(sport: string, apiKey: string) {
     }
   }
 
-  // Sort: Nigeria-accessible arbs first, then by profit
-  allSurebets.sort((a, b) => {
+  // ONLY return arbs where BOTH bookmakers are Nigeria-accessible
+  const nigeriaOnly = allSurebets.filter(s => s.accessTag === 'FULL_ACCESS');
+
+  // Sort by profit
+  nigeriaOnly.sort((a, b) => {
     const aAccess = a.accessTag === 'FULL_ACCESS' ? 2 : a.accessTag === 'PARTIAL_ACCESS' ? 1 : 0;
     const bAccess = b.accessTag === 'FULL_ACCESS' ? 2 : b.accessTag === 'PARTIAL_ACCESS' ? 1 : 0;
     if (aAccess !== bAccess) return bAccess - aAccess;
     return (b.arbPercentage as number) - (a.arbPercentage as number);
   });
 
-  return { surebets: allSurebets, quotaUsed, quotaRemaining, debug };
+  return { surebets: nigeriaOnly, totalScanned: allSurebets.length, quotaUsed, quotaRemaining, debug };
 }
 
 export async function GET(request: NextRequest) {
