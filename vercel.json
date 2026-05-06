@@ -3,10 +3,17 @@
   "framework": "nextjs",
   "buildCommand": "TURBOPACK= sh -c 'npx prisma generate && npx next build'",
   "installCommand": "npm ci",
+  "crons": [
+    {
+      "path": "/api/cron/scan",
+      "schedule": "*/15 * * * *"
+    }
+  ],
   "functions": {
     "src/app/api/surebet/scan/route.ts": { "maxDuration": 30 },
     "src/app/api/ai/advisor/route.ts":   { "maxDuration": 30 },
-    "src/app/api/odds/live/route.ts":    { "maxDuration": 15 }
+    "src/app/api/odds/live/route.ts":    { "maxDuration": 15 },
+    "src/app/api/cron/scan/route.ts":    { "maxDuration": 30 }
   },
   "headers": [
     {
