@@ -26,7 +26,7 @@ export default function SurebetScanner() {
   const [scanning, setScanning] = useState(false);
   const [surebets, setSurebets] = useState<Surebet[]>([]);
   const [selectedSport, setSelectedSport] = useState('All');
-  const [minProfit, setMinProfit] = useState(0);
+  const [minProfit, setMinProfit] = useState(-5);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(false);
   const [lastScan, setLastScan] = useState<string | null>(null);
