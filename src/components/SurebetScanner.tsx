@@ -14,6 +14,8 @@ interface SurebetOutcome {
   bookmaker: string;
   bookmakerKey: string;
   impliedProb: number;
+  nigeriaAccess?: boolean;
+  depositMethod?: string;
 }
 
 interface Surebet {
@@ -30,6 +32,7 @@ interface Surebet {
   isGenuineArb: boolean;
   riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
   bookmakerCount: number;
+  accessTag?: string;
   outcomes: SurebetOutcome[];
   status: string;
   detectedAt: string;
@@ -157,10 +160,19 @@ function SurebetCard({ sb, rank, onCalculate }: { sb: Surebet; rank: number; onC
         {sb.outcomes.map((o, i) => (
           <div key={i} className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2">
             <div className="flex items-center gap-2">
-              <div className={`w-1.5 h-6 rounded-full ${i === 0 ? 'bg-emerald-400' : i === 1 ? 'bg-blue-400' : 'bg-yellow-400'}`} />
               <div>
-                <div className="text-xs text-gray-400">{o.bookmaker}</div>
+                <div className="text-xs text-gray-400">
+                  {o.bookmaker}
+                  {o.nigeriaAccess !== undefined && (
+                    <span className={`ml-1.5 text-[9px] px-1 py-0.5 rounded ${o.nigeriaAccess ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/15 text-red-400'}`}>
+                      {o.nigeriaAccess ? 'NG \u2713' : 'VPN'}
+                    </span>
+                  )}
+                </div>
                 <div className="text-sm font-medium text-white">{o.outcome}</div>
+                {o.nigeriaAccess && o.depositMethod && (
+                  <div className="text-[9px] text-gray-600">{o.depositMethod}</div>
+                )}
               </div>
             </div>
             <div className="text-right">
@@ -178,6 +190,17 @@ function SurebetCard({ sb, rank, onCalculate }: { sb: Surebet; rank: number; onC
             {sb.riskLevel}
           </span>
           <CountdownBadge expiresAt={sb.expiresAt} />
+          {sb.accessTag && (
+            <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
+              sb.accessTag === 'FULL_ACCESS' ? 'bg-emerald-500/20 text-emerald-400' :
+              sb.accessTag === 'PARTIAL_ACCESS' ? 'bg-yellow-500/20 text-yellow-400' :
+              'bg-red-500/20 text-red-400'
+            }`}>
+              {sb.accessTag === 'FULL_ACCESS' ? 'Both NG accessible' :
+               sb.accessTag === 'PARTIAL_ACCESS' ? '1 NG accessible' :
+               'VPN needed'}
+            </span>
+          )}
           <span className="text-[10px] text-gray-600">{sb.bookmakerCount} books</span>
         </div>
         <button onClick={onCalculate} className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors">

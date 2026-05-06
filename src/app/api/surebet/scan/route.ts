@@ -8,60 +8,88 @@ const SPORT_MAP: Record<string, string> = {
   football:   'soccer_epl',
   soccer:     'soccer_epl',
   basketball: 'basketball_nba',
-  tennis:     'tennis_wta_french_open',
+  tennis:     'tennis_atp_french_open',
   baseball:   'baseball_mlb',
   hockey:     'icehockey_nhl',
   mma:        'mma_mixed_martial_arts',
   all:        'all',
 };
 
-// Active sports May 2026 — 1 credit each (us region only)
 const ALL_SPORTS = [
   'basketball_nba',
   'baseball_mlb',
 ];
 
-interface OddsAPIBookmaker {
-  key: string;
-  title: string;
-  markets: { key: string; outcomes: { name: string; price: number }[] }[];
+// Bookmakers accessible from Nigeria — no VPN needed
+const NIGERIA_BOOKMAKERS: Record<string, { name: string; deposit: string; accessible: boolean }> = {
+  '1xbet':        { name: '1xBet',      deposit: 'Naira, bank transfer, USSD', accessible: true },
+  'onexbet':      { name: '1xBet',      deposit: 'Naira, bank transfer, USSD', accessible: true },
+  'betway':       { name: 'Betway',     deposit: 'Naira, bank transfer, card',  accessible: true },
+  '22bet':        { name: '22Bet',      deposit: 'Naira, bank transfer, crypto', accessible: true },
+  'marathonbet':  { name: 'MarathonBet', deposit: 'Crypto, e-wallets',          accessible: true },
+  'pinnacle':     { name: 'Pinnacle',   deposit: 'Crypto, agents',              accessible: true },
+  'sport888':     { name: '888sport',   deposit: 'E-wallets',                   accessible: true },
+  'betonlineag':  { name: 'BetOnline',  deposit: 'Crypto',                      accessible: true },
+  'bovada':       { name: 'Bovada',     deposit: 'Crypto',                      accessible: true },
+  'mybookieag':   { name: 'MyBookie',   deposit: 'Crypto',                      accessible: true },
+  'betus':        { name: 'BetUS',      deposit: 'Crypto',                      accessible: true },
+  'williamhill':  { name: 'William Hill', deposit: 'VPN required',              accessible: false },
+  'betfair':      { name: 'Betfair',    deposit: 'VPN required',                accessible: false },
+  'tipico':       { name: 'Tipico',     deposit: 'VPN required',                accessible: false },
+  'draftkings':   { name: 'DraftKings', deposit: 'US only',                     accessible: false },
+  'fanduel':      { name: 'FanDuel',    deposit: 'US only',                     accessible: false },
+  'betmgm':       { name: 'BetMGM',     deposit: 'US only',                     accessible: false },
+  'caesars':      { name: 'Caesars',     deposit: 'US only',                     accessible: false },
+};
+
+function isNigeriaAccessible(bookmakerKey: string): boolean {
+  const bm = NIGERIA_BOOKMAKERS[bookmakerKey.toLowerCase()];
+  return bm ? bm.accessible : false; // unknown bookmakers default to not accessible
 }
 
-interface OddsAPIEvent {
-  id: string;
-  sport_key: string;
-  sport_title: string;
-  commence_time: string;
-  home_team: string;
-  away_team: string;
-  bookmakers: OddsAPIBookmaker[];
+function getDepositMethod(bookmakerKey: string): string {
+  const bm = NIGERIA_BOOKMAKERS[bookmakerKey.toLowerCase()];
+  return bm ? bm.deposit : 'Check availability';
 }
 
-function detectArbitrage(event: OddsAPIEvent) {
-  const surebets: Record<string, unknown>[] = [];
-  if (event.bookmakers.length < 2) return surebets;
+interface Outcome { name: string; price: number }
+interface Market { key: string; outcomes: Outcome[] }
+interface Bookmaker { key: string; title: string; markets: Market[] }
+interface Event {
+  id: string; sport_key: string; sport_title: string;
+  commence_time: string; home_team: string; away_team: string;
+  bookmakers: Bookmaker[];
+}
 
-  // Best odds across ALL bookmakers simultaneously
-  const bestOdds: Record<string, { odds: number; bookmaker: string; title: string }> = {};
+function detectArbitrage(event: Event) {
+  if (event.bookmakers.length < 2) return [];
+
+  // Best odds across ALL bookmakers
+  const bestOdds: Record<string, { odds: number; bookmaker: string; title: string; key: string }> = {};
   for (const bm of event.bookmakers) {
     const market = bm.markets.find(m => m.key === 'h2h');
     if (!market) continue;
     for (const outcome of market.outcomes) {
       if (!bestOdds[outcome.name] || outcome.price > bestOdds[outcome.name].odds) {
-        bestOdds[outcome.name] = { odds: outcome.price, bookmaker: bm.key, title: bm.title };
+        bestOdds[outcome.name] = { odds: outcome.price, bookmaker: bm.key, title: bm.title, key: bm.key };
       }
     }
   }
 
   const outcomes = Object.entries(bestOdds);
-  if (outcomes.length < 2) return surebets;
+  if (outcomes.length < 2) return [];
 
   const arbFraction = outcomes.reduce((sum, [, o]) => sum + 1 / o.odds, 0);
   const arbPct = parseFloat(((1 - arbFraction) * 100).toFixed(3));
 
-  // Show genuine arbs AND near-arbs (within 2%)
   if (arbFraction < 1.05) {
-    surebets.push({
+    const allAccessible = outcomes.every(([, o]) => isNigeriaAccessible(o.bookmaker));
+    const someAccessible = outcomes.some(([, o]) => isNigeriaAccessible(o.bookmaker));
+
+    // Accessibility tag for Nigeria users
+    const accessTag = allAccessible ? 'FULL_ACCESS' : someAccessible ? 'PARTIAL_ACCESS' : 'VPN_REQUIRED';
+
+    return [{
       id:            `arb_${event.id}_${Date.now()}`,
       eventId:       event.id,
       match:         `${event.home_team} vs ${event.away_team}`,
@@ -75,24 +103,26 @@ function detectArbitrage(event: OddsAPIEvent) {
       isGenuineArb:  arbFraction < 1.0,
       riskLevel:     arbFraction < 1.0 ? 'LOW' : 'MEDIUM',
       bookmakerCount: event.bookmakers.length,
+      accessTag,
       outcomes: outcomes.map(([name, o]) => ({
-        outcome:      name,
-        odds:         o.odds,
-        bookmaker:    o.title,
-        bookmakerKey: o.bookmaker,
-        impliedProb:  parseFloat(((1 / o.odds) * 100).toFixed(2)),
+        outcome:       name,
+        odds:          o.odds,
+        bookmaker:     o.title,
+        bookmakerKey:  o.bookmaker,
+        impliedProb:   parseFloat(((1 / o.odds) * 100).toFixed(2)),
+        nigeriaAccess: isNigeriaAccessible(o.bookmaker),
+        depositMethod: getDepositMethod(o.bookmaker),
       })),
       status:     'active',
       detectedAt: new Date().toISOString(),
       expiresAt:  new Date(Date.now() + 5 * 60 * 1000).toISOString(),
-    });
+    }];
   }
 
-  return surebets;
+  return [];
 }
 
 async function handleScan(sport: string, apiKey: string) {
-  // Fix: map sport name to API key correctly
   const sportLower = sport.toLowerCase();
   const sportsToScan = sportLower === 'all'
     ? ALL_SPORTS
@@ -121,22 +151,28 @@ async function handleScan(sport: string, apiKey: string) {
     quotaRemaining = parseInt(res.headers.get('x-requests-remaining') ?? '0', 10);
 
     if (!res.ok) {
-      if (res.status === 401) return { err: 'Invalid ODDS_API_KEY — check Vercel env vars', code: 401 };
-      if (res.status === 422) { debug.push(`${sportKey}: no events currently`); continue; }
-      if (res.status === 429) return { err: 'Odds API quota exceeded', code: 429 };
+      if (res.status === 401) return { err: 'Invalid ODDS_API_KEY', code: 401 };
+      if (res.status === 422) { debug.push(`${sportKey}: no events`); continue; }
+      if (res.status === 429) return { err: 'Quota exceeded', code: 429 };
       debug.push(`${sportKey}: HTTP ${res.status}`);
       continue;
     }
 
-    const events: OddsAPIEvent[] = await res.json();
-    debug.push(`${sportKey}: ${events.length} events, ${events.reduce((s, e) => s + e.bookmakers.length, 0)} total bookmakers`);
+    const events: Event[] = await res.json();
+    debug.push(`${sportKey}: ${events.length} events, ${events.reduce((s, e) => s + e.bookmakers.length, 0)} bookmakers`);
 
     for (const event of events) {
       allSurebets.push(...detectArbitrage(event));
     }
   }
 
-  allSurebets.sort((a, b) => (b.arbPercentage as number) - (a.arbPercentage as number));
+  // Sort: Nigeria-accessible arbs first, then by profit
+  allSurebets.sort((a, b) => {
+    const aAccess = a.accessTag === 'FULL_ACCESS' ? 2 : a.accessTag === 'PARTIAL_ACCESS' ? 1 : 0;
+    const bAccess = b.accessTag === 'FULL_ACCESS' ? 2 : b.accessTag === 'PARTIAL_ACCESS' ? 1 : 0;
+    if (aAccess !== bAccess) return bAccess - aAccess;
+    return (b.arbPercentage as number) - (a.arbPercentage as number);
+  });
 
   return { surebets: allSurebets, quotaUsed, quotaRemaining, debug };
 }
@@ -161,7 +197,6 @@ export async function POST(request: NextRequest) {
   if (!apiKey) return success({ totalFound: 0, quotaUsed: 0, quotaRemaining: 0, surebets: [], message: 'ODDS_API_KEY not configured.', demoMode: true });
 
   try {
-    // Fix: read sport from POST body
     const body = await request.json().catch(() => ({})) as { sport?: string };
     const sport = body.sport || new URL(request.url).searchParams.get('sport') || 'all';
     const result = await handleScan(sport, apiKey);
