@@ -106,7 +106,7 @@ async function handleScan(sport: string, apiKey: string) {
   for (const sportKey of sportsToScan) {
     const url = `${ODDS_API_BASE}/sports/${sportKey}/odds?` + new URLSearchParams({
       apiKey,
-      regions:    'us',
+      regions:    'us,uk',
       markets:    'h2h',
       oddsFormat: 'decimal',
       dateFormat: 'iso',
