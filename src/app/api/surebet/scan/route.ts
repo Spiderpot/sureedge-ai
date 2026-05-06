@@ -4,9 +4,9 @@ import { success, error } from '@/lib/api-response';
 
 const ODDS_API_BASE = 'https://api.the-odds-api.com/v4';
 
-// Active sports in May — EPL is OFF season, use these instead
 const SPORT_MAP: Record<string, string> = {
-  football:   'soccer_uefa_champs_league',
+  football:   'soccer_epl',
+  soccer:     'soccer_epl',
   basketball: 'basketball_nba',
   tennis:     'tennis_wta_french_open',
   baseball:   'baseball_mlb',
@@ -15,21 +15,16 @@ const SPORT_MAP: Record<string, string> = {
   all:        'all',
 };
 
-// Sports to scan when "all" selected — ordered by arb likelihood
-// Free tier: 500 credits/month. Each sport = 1 credit per scan.
-// Scan max 2 sports at once to conserve quota.
+// Active sports May 2026 — 1 credit each (us region only)
 const ALL_SPORTS = [
-  'basketball_nba',   // NBA playoffs — most bookmakers, best arb chances
-  'baseball_mlb',     // MLB season — high volume
+  'basketball_nba',
+  'baseball_mlb',
 ];
 
 interface OddsAPIBookmaker {
   key: string;
   title: string;
-  markets: {
-    key: string;
-    outcomes: { name: string; price: number }[];
-  }[];
+  markets: { key: string; outcomes: { name: string; price: number }[] }[];
 }
 
 interface OddsAPIEvent {
@@ -42,15 +37,12 @@ interface OddsAPIEvent {
   bookmakers: OddsAPIBookmaker[];
 }
 
-// Fix: Find BEST odds for each outcome across ALL bookmakers simultaneously
 function detectArbitrage(event: OddsAPIEvent) {
   const surebets: Record<string, unknown>[] = [];
-
   if (event.bookmakers.length < 2) return surebets;
 
-  // Build best odds map across ALL bookmakers
+  // Best odds across ALL bookmakers simultaneously
   const bestOdds: Record<string, { odds: number; bookmaker: string; title: string }> = {};
-
   for (const bm of event.bookmakers) {
     const market = bm.markets.find(m => m.key === 'h2h');
     if (!market) continue;
@@ -64,17 +56,11 @@ function detectArbitrage(event: OddsAPIEvent) {
   const outcomes = Object.entries(bestOdds);
   if (outcomes.length < 2) return surebets;
 
-  // Real arb: sum of (1/bestOdds) < 1
   const arbFraction = outcomes.reduce((sum, [, o]) => sum + 1 / o.odds, 0);
   const arbPct = parseFloat(((1 - arbFraction) * 100).toFixed(3));
 
-  // Show genuine arbs (arbFraction < 1.0) AND near-arbs (< 1.02) as opportunities
+  // Show genuine arbs AND near-arbs (within 2%)
   if (arbFraction < 1.02) {
-    const isGenuineArb = arbFraction < 1.0;
-    const riskLevel = isGenuineArb
-      ? (arbPct > 3 ? 'LOW' : 'LOW')
-      : 'MEDIUM';
-
     surebets.push({
       id:            `arb_${event.id}_${Date.now()}`,
       eventId:       event.id,
@@ -84,9 +70,10 @@ function detectArbitrage(event: OddsAPIEvent) {
       commenceTime:  event.commence_time,
       arbPercentage: arbPct,
       arbFraction:   parseFloat(arbFraction.toFixed(6)),
+      profit:        arbPct,
       roi:           arbPct,
-      isGenuineArb,
-      riskLevel,
+      isGenuineArb:  arbFraction < 1.0,
+      riskLevel:     arbFraction < 1.0 ? 'LOW' : 'MEDIUM',
       bookmakerCount: event.bookmakers.length,
       outcomes: outcomes.map(([name, o]) => ({
         outcome:      name,
@@ -104,83 +91,84 @@ function detectArbitrage(event: OddsAPIEvent) {
   return surebets;
 }
 
-export async function GET(request: NextRequest) {
-  try {
-    const apiKey = process.env.ODDS_API_KEY;
-    const { searchParams } = new URL(request.url);
-    const sport = searchParams.get('sport') || 'all';
+async function handleScan(sport: string, apiKey: string) {
+  // Fix: map sport name to API key correctly
+  const sportLower = sport.toLowerCase();
+  const sportsToScan = sportLower === 'all'
+    ? ALL_SPORTS
+    : [SPORT_MAP[sportLower] ?? 'basketball_nba'];
 
-    if (!apiKey) {
-      return success({
-        totalFound: 0, quotaUsed: 0, quotaRemaining: 0, surebets: [],
-        message: 'ODDS_API_KEY not configured.',
-        demoMode: true,
-      });
-    }
+  const allSurebets: Record<string, unknown>[] = [];
+  const debug: string[] = [];
+  let quotaUsed = 0;
+  let quotaRemaining = 0;
 
-    const sportsToScan = sport === 'all'
-      ? ALL_SPORTS
-      : [SPORT_MAP[sport] ?? 'basketball_nba'];
-
-    const allSurebets: Record<string, unknown>[] = [];
-    let quotaUsed = 0;
-    let quotaRemaining = 0;
-    const errors: string[] = [];
-
-    for (const sportKey of sportsToScan) {
-      try {
-        const url = `${ODDS_API_BASE}/sports/${sportKey}/odds?` + new URLSearchParams({
-          apiKey,
-          regions:    'us',
-          markets:    'h2h',
-          oddsFormat: 'decimal',
-          dateFormat: 'iso',
-        });
-
-        // No caching — each scan must get fresh odds
-        const res = await fetch(url, {
-          cache: 'no-store',
-          headers: { 'Accept': 'application/json' },
-        });
-
-        quotaUsed      = parseInt(res.headers.get('x-requests-used') ?? '0', 10);
-        quotaRemaining = parseInt(res.headers.get('x-requests-remaining') ?? '0', 10);
-
-        if (!res.ok) {
-          if (res.status === 401) return error('Invalid ODDS_API_KEY', 401);
-          if (res.status === 422) { errors.push(`${sportKey}: no events`); continue; }
-          if (res.status === 429) return error('Odds API quota exceeded. Try again tomorrow.', 429);
-          errors.push(`${sportKey}: HTTP ${res.status}`);
-          continue;
-        }
-
-        const events: OddsAPIEvent[] = await res.json();
-
-        for (const event of events) {
-          allSurebets.push(...detectArbitrage(event));
-        }
-      } catch (e) {
-        errors.push(`${sportKey}: ${String(e)}`);
-      }
-    }
-
-    allSurebets.sort((a, b) => (b.arbPercentage as number) - (a.arbPercentage as number));
-
-    return success({
-      totalFound:     allSurebets.length,
-      quotaUsed,
-      quotaRemaining,
-      sportsScanned:  sportsToScan.length,
-      errors:         errors.length ? errors : undefined,
-      surebets:       allSurebets,
-      scannedAt:      new Date().toISOString(),
+  for (const sportKey of sportsToScan) {
+    const url = `${ODDS_API_BASE}/sports/${sportKey}/odds?` + new URLSearchParams({
+      apiKey,
+      regions:    'us',
+      markets:    'h2h',
+      oddsFormat: 'decimal',
+      dateFormat: 'iso',
     });
+
+    const res = await fetch(url, {
+      cache: 'no-store',
+      headers: { 'Accept': 'application/json' },
+    });
+
+    quotaUsed      = parseInt(res.headers.get('x-requests-used') ?? '0', 10);
+    quotaRemaining = parseInt(res.headers.get('x-requests-remaining') ?? '0', 10);
+
+    if (!res.ok) {
+      if (res.status === 401) return { err: 'Invalid ODDS_API_KEY — check Vercel env vars', code: 401 };
+      if (res.status === 422) { debug.push(`${sportKey}: no events currently`); continue; }
+      if (res.status === 429) return { err: 'Odds API quota exceeded', code: 429 };
+      debug.push(`${sportKey}: HTTP ${res.status}`);
+      continue;
+    }
+
+    const events: OddsAPIEvent[] = await res.json();
+    debug.push(`${sportKey}: ${events.length} events, ${events.reduce((s, e) => s + e.bookmakers.length, 0)} total bookmakers`);
+
+    for (const event of events) {
+      allSurebets.push(...detectArbitrage(event));
+    }
+  }
+
+  allSurebets.sort((a, b) => (b.arbPercentage as number) - (a.arbPercentage as number));
+
+  return { surebets: allSurebets, quotaUsed, quotaRemaining, debug };
+}
+
+export async function GET(request: NextRequest) {
+  const apiKey = process.env.ODDS_API_KEY;
+  if (!apiKey) return success({ totalFound: 0, quotaUsed: 0, quotaRemaining: 0, surebets: [], message: 'ODDS_API_KEY not configured.', demoMode: true });
+
+  try {
+    const sport = new URL(request.url).searchParams.get('sport') || 'all';
+    const result = await handleScan(sport, apiKey);
+    if ('err' in result) return error(result.err as string, result.code as number);
+    return success({ totalFound: result.surebets!.length, quotaUsed: result.quotaUsed, quotaRemaining: result.quotaRemaining, surebets: result.surebets, debug: result.debug, scannedAt: new Date().toISOString() });
   } catch (err) {
-    console.error('Surebet scan error:', err);
+    console.error('Scan error:', err);
     return error('Scan failed', 500);
   }
 }
 
 export async function POST(request: NextRequest) {
-  return GET(request);
+  const apiKey = process.env.ODDS_API_KEY;
+  if (!apiKey) return success({ totalFound: 0, quotaUsed: 0, quotaRemaining: 0, surebets: [], message: 'ODDS_API_KEY not configured.', demoMode: true });
+
+  try {
+    // Fix: read sport from POST body
+    const body = await request.json().catch(() => ({})) as { sport?: string };
+    const sport = body.sport || new URL(request.url).searchParams.get('sport') || 'all';
+    const result = await handleScan(sport, apiKey);
+    if ('err' in result) return error(result.err as string, result.code as number);
+    return success({ totalFound: result.surebets!.length, quotaUsed: result.quotaUsed, quotaRemaining: result.quotaRemaining, surebets: result.surebets, debug: result.debug, scannedAt: new Date().toISOString() });
+  } catch (err) {
+    console.error('Scan error:', err);
+    return error('Scan failed', 500);
+  }
 }
