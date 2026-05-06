@@ -16,12 +16,11 @@ const SPORT_MAP: Record<string, string> = {
 };
 
 // Sports to scan when "all" selected — ordered by arb likelihood
+// Free tier: 500 credits/month. Each sport = 1 credit per scan.
+// Scan max 2 sports at once to conserve quota.
 const ALL_SPORTS = [
-  'basketball_nba',
-  'baseball_mlb',
-  'mma_mixed_martial_arts',
-  'soccer_uefa_champs_league',
-  'icehockey_nhl',
+  'basketball_nba',   // NBA playoffs — most bookmakers, best arb chances
+  'baseball_mlb',     // MLB season — high volume
 ];
 
 interface OddsAPIBookmaker {
@@ -132,7 +131,7 @@ export async function GET(request: NextRequest) {
       try {
         const url = `${ODDS_API_BASE}/sports/${sportKey}/odds?` + new URLSearchParams({
           apiKey,
-          regions:    'uk,us,eu,au',
+          regions:    'us',
           markets:    'h2h',
           oddsFormat: 'decimal',
           dateFormat: 'iso',
