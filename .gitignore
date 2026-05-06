@@ -6,3 +6,5 @@ node_modules/
 prisma/dev.db
 *.tar.gz
 public/TerraLPG_Platform_v5.tar.gz
+.env.vercel
+.env.example
