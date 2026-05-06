@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Calculator, Plus, Trash2, RotateCcw, CheckCircle2, AlertTriangle, PieChart } from 'lucide-react';
 import { ResponsiveContainer, Tooltip, PieChart as PieChartComponent, Pie, Cell } from 'recharts';
+import { useAppStore } from '@/lib/store';
 
 interface Outcome {
   outcome: string;
@@ -31,6 +32,7 @@ interface CalcResult {
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
 export default function StakeCalculator() {
+  const { selectedSurebet, setSelectedSurebet } = useAppStore();
   const [totalStake, setTotalStake] = useState(100);
   const [outcomes, setOutcomes] = useState<Outcome[]>([
     { outcome: 'Team A Win', odds: 2.10 },
@@ -38,6 +40,19 @@ export default function StakeCalculator() {
   ]);
   const [result, setResult] = useState<CalcResult | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // Auto-populate from Scanner's "Calculate Stake" button
+  useEffect(() => {
+    if (selectedSurebet) {
+      setOutcomes(
+        selectedSurebet.outcomes.map(o => ({
+          outcome: `${o.outcome} (${o.bookmaker})`,
+          odds: o.odds,
+        }))
+      );
+      setSelectedSurebet(null); // clear after consuming
+    }
+  }, [selectedSurebet, setSelectedSurebet]);
 
   const addOutcome = () => {
     setOutcomes([...outcomes, { outcome: `Outcome ${outcomes.length + 1}`, odds: 2.0 }]);
