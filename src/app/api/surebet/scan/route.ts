@@ -60,7 +60,7 @@ function detectArbitrage(event: OddsAPIEvent) {
   const arbPct = parseFloat(((1 - arbFraction) * 100).toFixed(3));
 
   // Show genuine arbs AND near-arbs (within 2%)
-  if (arbFraction < 1.02) {
+  if (arbFraction < 1.05) {
     surebets.push({
       id:            `arb_${event.id}_${Date.now()}`,
       eventId:       event.id,
