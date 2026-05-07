@@ -15,9 +15,21 @@ const SPORT_MAP: Record<string, string> = {
   all:        'all',
 };
 
+// Additional football leagues for broader coverage
+const FOOTBALL_LEAGUES = [
+  'soccer_epl',            // English Premier League
+  'soccer_spain_la_liga',  // La Liga
+  'soccer_italy_serie_a',  // Serie A
+  'soccer_germany_bundesliga', // Bundesliga
+  'soccer_france_ligue_one',   // Ligue 1
+  'soccer_uefa_champs_league', // Champions League
+];
+
+// "All" scans top 2 sports to conserve credits (4 credits each = 8 total)
+// Individual sport filters scan that sport only (4 credits)
 const ALL_SPORTS = [
-  'basketball_nba',
-  'baseball_mlb',
+  'soccer_epl',       // EPL — daytime Lagos, most NG bookmaker coverage
+  'baseball_mlb',     // MLB — nighttime Lagos, high arb frequency
 ];
 
 // Bookmakers accessible from Nigeria — no VPN needed
@@ -130,9 +142,16 @@ function detectArbitrage(event: Event) {
 
 async function handleScan(sport: string, apiKey: string) {
   const sportLower = sport.toLowerCase();
-  const sportsToScan = sportLower === 'all'
-    ? ALL_SPORTS
-    : [SPORT_MAP[sportLower] ?? 'basketball_nba'];
+  let sportsToScan: string[];
+
+  if (sportLower === 'all') {
+    sportsToScan = ALL_SPORTS;
+  } else if (sportLower === 'football' || sportLower === 'soccer') {
+    // Football scans multiple leagues for maximum coverage
+    sportsToScan = FOOTBALL_LEAGUES.slice(0, 2); // 2 leagues = 8 credits
+  } else {
+    sportsToScan = [SPORT_MAP[sportLower] ?? 'basketball_nba'];
+  }
 
   const allSurebets: Record<string, unknown>[] = [];
   const debug: string[] = [];
