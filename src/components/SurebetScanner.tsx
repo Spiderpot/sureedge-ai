@@ -4,9 +4,10 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Search, RefreshCw, ArrowUpDown, Timer, Shield, TrendingUp,
-  AlertTriangle, ChevronDown, Volume2, VolumeX,
+  AlertTriangle, ChevronDown, Volume2, VolumeX, Zap,
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
+import BetExecutor from './BetExecutor';
 
 interface SurebetOutcome {
   outcome: string;
@@ -123,7 +124,7 @@ function CountdownBadge({ expiresAt }: { expiresAt: string }) {
   );
 }
 
-function SurebetCard({ sb, rank, onCalculate }: { sb: Surebet; rank: number; onCalculate: () => void }) {
+function SurebetCard({ sb, rank, onCalculate, onExecute }: { sb: Surebet; rank: number; onCalculate: () => void; onExecute: () => void }) {
   const { color, Icon } = riskBadge(sb.riskLevel);
 
   return (
@@ -215,10 +216,24 @@ function SurebetCard({ sb, rank, onCalculate }: { sb: Surebet; rank: number; onC
           )}
           <span className="text-[10px] text-gray-600">{sb.bookmakerCount} books</span>
         </div>
-        <button onClick={onCalculate} className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors">
-          <TrendingUp className="w-3.5 h-3.5" />
-          Calculate Stake
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={onCalculate} className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 text-gray-300 text-xs font-medium px-3 py-2 rounded-lg transition-colors">
+            <TrendingUp className="w-3.5 h-3.5" />
+            Calculate
+          </button>
+          {sb.isGenuineArb && (
+            <button onClick={onExecute} className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors animate-pulse">
+              <Zap className="w-3.5 h-3.5" />
+              Execute Now
+            </button>
+          )}
+          {!sb.isGenuineArb && (
+            <button onClick={onExecute} className="flex items-center gap-1.5 bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-400 text-xs font-medium px-3 py-2 rounded-lg transition-colors">
+              <Zap className="w-3.5 h-3.5" />
+              Execute
+            </button>
+          )}
+        </div>
       </div>
     </motion.div>
   );
@@ -238,6 +253,7 @@ export default function SurebetScanner() {
   const [soundOn, setSoundOn] = useState(true);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [debug, setDebug] = useState<string[]>([]);
+  const [executingSurebet, setExecutingSurebet] = useState<Surebet | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const scan = useCallback(async () => {
@@ -290,6 +306,10 @@ export default function SurebetScanner() {
       riskLevel: sb.riskLevel, outcomes: sb.outcomes, expiresAt: sb.expiresAt,
     });
     setActiveView('calculator');
+  };
+
+  const handleExecute = (sb: Surebet) => {
+    setExecutingSurebet(sb);
   };
 
   const genuineCount = surebets.filter(s => s.isGenuineArb).length;
@@ -415,7 +435,7 @@ export default function SurebetScanner() {
             </motion.div>
           ) : sorted.length > 0 ? (
             sorted.map((sb, i) => (
-              <SurebetCard key={sb.id} sb={sb} rank={i} onCalculate={() => handleCalculateStake(sb)} />
+              <SurebetCard key={sb.id} sb={sb} rank={i} onCalculate={() => handleCalculateStake(sb)} onExecute={() => handleExecute(sb)} />
             ))
           ) : (
             <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }}
@@ -431,6 +451,32 @@ export default function SurebetScanner() {
           )}
         </AnimatePresence>
       </div>
+
+      {/* Bet Executor Modal */}
+      {executingSurebet && (
+        <BetExecutor
+          match={executingSurebet.match}
+          sport={executingSurebet.sport}
+          arbPercentage={executingSurebet.arbPercentage}
+          totalStake={100}
+          legs={executingSurebet.outcomes.map(o => {
+            const arbFraction = executingSurebet.outcomes.reduce((sum, oc) => sum + 1 / oc.odds, 0);
+            const stake = parseFloat(((1 / o.odds / arbFraction) * 100).toFixed(2));
+            return {
+              outcome: o.outcome,
+              odds: o.odds,
+              bookmaker: o.bookmaker,
+              bookmakerUrl: o.bookmakerUrl || '',
+              stake,
+              potentialReturn: parseFloat((stake * o.odds).toFixed(2)),
+              depositMethod: o.depositMethod || '',
+            };
+          })}
+          guaranteedProfit={parseFloat((executingSurebet.arbPercentage > 0 ? executingSurebet.arbPercentage : 0).toFixed(2))}
+          expiresAt={executingSurebet.expiresAt}
+          onClose={() => setExecutingSurebet(null)}
+        />
+      )}
 
       <div className="flex items-center justify-between text-[10px] text-gray-600 pt-2">
         <span>SureEdge AI v2.4.1</span>
