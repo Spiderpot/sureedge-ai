@@ -46,22 +46,25 @@ function setCache(key: string, data: NormalizedOdds[], source: string) {
 
 // ─── OddsPapi Tournament IDs ───────────────────────────────────────────
 
-// Map our sport keys to OddsPapi tournament IDs
-const ODDSPAPI_TOURNAMENTS: Record<string, number[]> = {
-  'soccer_epl':                [17],     // Premier League
-  'soccer_spain_la_liga':      [8],      // LaLiga
-  'soccer_italy_serie_a':     [23],     // Serie A
-  'soccer_germany_bundesliga': [35],     // Bundesliga
-  'soccer_france_ligue_one':   [34],     // Ligue 1
-  'soccer_uefa_champs_league': [7],      // Champions League
-  'basketball_nba':            [132],    // NBA
-  'basketball_euroleague':     [138],    // Euroleague
-  'baseball_mlb':              [78],     // MLB
-  'icehockey_nhl':             [108],    // NHL
-  'tennis_atp_french_open':    [96],     // ATP
-  'tennis_wta_french_open':    [97],     // WTA
-  'mma_mixed_martial_arts':    [154],    // MMA/UFC
+// OddsPapi uses sportId, not tournament IDs — more reliable
+const ODDSPAPI_SPORT_IDS: Record<string, number> = {
+  'soccer_epl':                10,
+  'soccer_spain_la_liga':      10,
+  'soccer_italy_serie_a':     10,
+  'soccer_germany_bundesliga': 10,
+  'soccer_france_ligue_one':   10,
+  'soccer_uefa_champs_league': 10,
+  'basketball_nba':            2,
+  'basketball_euroleague':     2,
+  'baseball_mlb':              3,
+  'icehockey_nhl':             4,
+  'tennis_atp_french_open':    5,
+  'tennis_wta_french_open':    5,
+  'mma_mixed_martial_arts':    7,
 };
+
+// Cache for tournament IDs discovered from the API
+const tournamentCache = new Map<number, number[]>();
 
 // Market IDs: 101 = 1X2 (soccer), 111 = Moneyline (basketball/baseball/hockey)
 function getMarketId(sportKey: string): string {
@@ -80,13 +83,50 @@ function getOutcomeLabels(sportKey: string): Record<string, string> {
 
 const ODDSPAPI_BASE = 'https://api.oddspapi.io/v4';
 
-// Efficient: Get ALL fixtures + odds from multiple bookmakers in ONE request
+// Step 1: Discover tournament IDs for a sport (cached, 1 request)
+// Step 2: Get odds by tournament (1 request, ALL bookmakers)
+async function discoverTournaments(sportId: number, apiKey: string): Promise<number[]> {
+  const cached = tournamentCache.get(sportId);
+  if (cached) return cached;
+
+  try {
+    const res = await fetch(
+      `${ODDSPAPI_BASE}/tournaments?sportId=${sportId}&apiKey=${apiKey}`,
+      { cache: 'no-store' }
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    const items = Array.isArray(data) ? data : [];
+    // Get tournaments with upcoming fixtures, sorted by most fixtures
+    const active = items
+      .filter((t: Record<string, unknown>) => 
+        ((t.futureFixtures as number) || 0) > 0 || ((t.upcomingFixtures as number) || 0) > 0
+      )
+      .sort((a: Record<string, unknown>, b: Record<string, unknown>) => 
+        ((b.upcomingFixtures as number) || 0) - ((a.upcomingFixtures as number) || 0)
+      )
+      .slice(0, 5) // Top 5 active tournaments
+      .map((t: Record<string, unknown>) => t.tournamentId as number);
+    
+    if (active.length > 0) {
+      tournamentCache.set(sportId, active);
+    }
+    return active;
+  } catch {
+    return [];
+  }
+}
+
 async function fetchOddsPapiByTournament(
   sportKey: string,
   apiKey: string
 ): Promise<NormalizedOdds[]> {
-  const tournamentIds = ODDSPAPI_TOURNAMENTS[sportKey];
-  if (!tournamentIds) return [];
+  const sportId = ODDSPAPI_SPORT_IDS[sportKey];
+  if (!sportId) return [];
+
+  // Auto-discover tournament IDs
+  const tournamentIds = await discoverTournaments(sportId, apiKey);
+  if (tournamentIds.length === 0) return [];
 
   const marketId = getMarketId(sportKey);
   const outcomeLabels = getOutcomeLabels(sportKey);
