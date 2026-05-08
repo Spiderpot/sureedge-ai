@@ -91,11 +91,13 @@ async function discoverTournaments(sportId: number, apiKey: string): Promise<num
   if (cached) return cached;
 
   try {
-    const res = await fetch(
-      `${ODDSPAPI_BASE}/tournaments?sportId=${sportId}&apiKey=${apiKey}`,
-      { cache: 'no-store' }
-    );
-    if (!res.ok) return [];
+    const url = `${ODDSPAPI_BASE}/tournaments?sportId=${sportId}&apiKey=${apiKey}`;
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      console.error(`OddsPapi tournaments: ${res.status} ${res.statusText} — ${body.slice(0, 200)}`);
+      return [];
+    }
     const data = await res.json();
     const items = Array.isArray(data) ? data : [];
     // Get tournaments with upcoming fixtures, sorted by most fixtures
@@ -143,7 +145,8 @@ async function fetchOddsPapiByTournament(
 
     const res = await fetch(url, { cache: 'no-store' });
     if (!res.ok) {
-      console.error(`OddsPapi odds-by-tournaments: ${res.status} ${res.statusText}`);
+      const body = await res.text().catch(() => '');
+      console.error(`OddsPapi odds-by-tournaments: ${res.status} ${res.statusText} — ${body.slice(0, 500)}`);
       return [];
     }
 
@@ -209,6 +212,53 @@ async function fetchOddsPapiByTournament(
     console.error('OddsPapi error:', err);
     return [];
   }
+}
+
+// Diagnostic: test OddsPapi connection and return detailed status
+export async function diagnosePapi(): Promise<string[]> {
+  const apiKey = process.env.ODDSPAPI_API_KEY;
+  const log: string[] = [];
+
+  if (!apiKey) {
+    log.push('ODDSPAPI_API_KEY: NOT SET');
+    return log;
+  }
+  log.push(`ODDSPAPI_API_KEY: set (${apiKey.slice(0, 8)}...)`);
+
+  // Test 1: Account
+  try {
+    const r = await fetch(`${ODDSPAPI_BASE}/account?apiKey=${apiKey}`, { cache: 'no-store' });
+    const d = await r.json();
+    log.push(`Account: ${r.status} — plan=${d.subscriptions?.[0]?.plan}, used=${d.subscriptions?.[0]?.request_count}/${d.subscriptions?.[0]?.request_limit}`);
+  } catch (e) { log.push(`Account: ERROR — ${e}`); }
+
+  // Test 2: Tournaments for basketball (sportId=11)
+  try {
+    const r = await fetch(`${ODDSPAPI_BASE}/tournaments?sportId=11&apiKey=${apiKey}`, { cache: 'no-store' });
+    const d = await r.json();
+    const items = Array.isArray(d) ? d : [];
+    const active = items.filter((t: Record<string, unknown>) => ((t.upcomingFixtures as number) || 0) > 0 || ((t.futureFixtures as number) || 0) > 0);
+    log.push(`Basketball tournaments: ${items.length} total, ${active.length} with fixtures`);
+    if (active.length > 0) {
+      const top = active[0] as Record<string, unknown>;
+      log.push(`  Top: ${top.tournamentName} (id=${top.tournamentId}, upcoming=${top.upcomingFixtures}, future=${top.futureFixtures})`);
+    }
+  } catch (e) { log.push(`Tournaments: ERROR — ${e}`); }
+
+  // Test 3: Tournaments for soccer (sportId=10)
+  try {
+    const r = await fetch(`${ODDSPAPI_BASE}/tournaments?sportId=10&apiKey=${apiKey}`, { cache: 'no-store' });
+    const d = await r.json();
+    const items = Array.isArray(d) ? d : [];
+    const active = items.filter((t: Record<string, unknown>) => ((t.upcomingFixtures as number) || 0) > 0 || ((t.futureFixtures as number) || 0) > 0);
+    log.push(`Soccer tournaments: ${items.length} total, ${active.length} with fixtures`);
+    if (active.length > 0) {
+      const top = active[0] as Record<string, unknown>;
+      log.push(`  Top: ${top.tournamentName} (id=${top.tournamentId}, upcoming=${top.upcomingFixtures}, future=${top.futureFixtures})`);
+    }
+  } catch (e) { log.push(`Tournaments: ERROR — ${e}`); }
+
+  return log;
 }
 
 // ─── The Odds API (BACKUP — 35 credits left) ───────────────────────────
