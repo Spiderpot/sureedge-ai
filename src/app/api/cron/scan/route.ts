@@ -130,38 +130,12 @@ export async function GET(request: NextRequest) {
     if (await sendTelegramAlert(formatArbAlert(arb))) telegramSent++;
   }
 
-  // ALWAYS send top 3 near-arbs (these are actionable opportunities)
-  if (nearArbs.length > 0) {
-    const top3 = nearArbs.slice(0, 3);
-    let msg = `\u{1F50D} <b>SureEdge Scan: ${sportKey.replace('_', ' ').toUpperCase()}</b>\n\n`;
-    msg += `Found <b>${nearArbs.length}</b> near-arb opportunities\n\n`;
-    
-    for (const arb of top3) {
-      const icon = arb.hasPinnacle ? '\u{1F4A0}' : '\u{26BE}';
-      msg += `${icon} <b>${arb.match}</b>\n`;
-      msg += `   Margin: <b>${arb.arbPercentage.toFixed(2)}%</b>`;
-      if (arb.hasPinnacle) msg += ' (Pinnacle)';
-      msg += '\n';
-      for (const o of arb.outcomes) {
-        msg += `   ${o.bookmaker}: ${o.outcome} @ ${o.odds}\n`;
-      }
-      msg += '\n';
-    }
-
-    if (nearArbs.length > 3) {
-      msg += `+${nearArbs.length - 3} more in app\n\n`;
-    }
-
-    msg += `\u{1F517} <a href="https://sureedge-ai.vercel.app">Open SureEdge AI</a>`;
-    
-    if (await sendTelegramAlert(msg)) telegramSent++;
-  }
-
-  // No opportunities at all — notify once per hour only
-  if (allArbs.length === 0 && new Date().getMinutes() < 15) {
-    await sendTelegramAlert(
-      `\u{1F50D} <b>Auto-scan: ${sportKey.replace('_', ' ')}</b>\n\nNo opportunities right now.\nNext scan in 15 min.`
-    );
+  // Only notify when there are NO genuine arbs — once per hour max
+  if (genuineArbs.length === 0 && new Date().getMinutes() < 15) {
+    const summary = nearArbs.length > 0
+      ? `\u{1F50D} <b>${sportKey.replace('_', ' ')}</b>: ${nearArbs.length} near-arbs but no guaranteed profit yet. Monitoring...`
+      : `\u{1F50D} <b>${sportKey.replace('_', ' ')}</b>: No opportunities. Next scan in 15 min.`;
+    await sendTelegramAlert(summary);
     telegramSent++;
   }
 
