@@ -75,10 +75,14 @@ export async function GET(request: NextRequest) {
   // Protect cron endpoint with secret
   const authHeader = request.headers.get('authorization');
   const cronSecret = process.env.CRON_SECRET;
+  const querySecret = new URL(request.url).searchParams.get('secret');
 
-  // Allow Vercel cron (sends x-vercel-cron header) or secret-based auth
+  // Allow: Vercel cron header, Bearer token, or ?secret= query param
   const isVercelCron = request.headers.get('x-vercel-cron') === '1';
-  const isAuthed     = cronSecret && authHeader === `Bearer ${cronSecret}`;
+  const isAuthed     = cronSecret && (
+    authHeader === `Bearer ${cronSecret}` ||
+    querySecret === cronSecret
+  );
 
   if (!isVercelCron && !isAuthed && cronSecret) {
     return error('Unauthorized', 401);
