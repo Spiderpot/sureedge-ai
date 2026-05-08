@@ -184,7 +184,7 @@ async function fetchTheOddsAPI(sportKey: string): Promise<{ events: NormalizedOd
   try {
     const url = `https://api.the-odds-api.com/v4/sports/${sportKey}/odds?` + new URLSearchParams({
       apiKey,
-      regions:    'us,uk,eu,au',
+      regions:    'eu,uk',
       markets:    'h2h',
       oddsFormat: 'decimal',
       dateFormat: 'iso',
