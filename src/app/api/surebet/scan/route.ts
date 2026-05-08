@@ -32,11 +32,17 @@ const NG_BOOKMAKERS: Record<string, { name: string; deposit: string; url: string
   // Tier 1: Sharp books — these CREATE arb opportunities
   'pinnacle':    { name: 'Pinnacle',    deposit: 'Crypto (USDT TRC-20)',  url: 'https://pinnacle.com',     tier: 1 },
 
-  // Tier 2: Soft books with Naira deposit — these are the OTHER side of the arb  
+  // Tier 2: Nigerian books with Naira deposit — these are the OTHER side of the arb  
   '1xbet':       { name: '1xBet',       deposit: 'Naira, bank, USSD',    url: 'https://1xbet.ng',         tier: 2 },
   'onexbet':     { name: '1xBet',       deposit: 'Naira, bank, USSD',    url: 'https://1xbet.ng',         tier: 2 },
   '22bet':       { name: '22Bet',       deposit: 'Naira, bank, crypto',  url: 'https://22bet.ng',         tier: 2 },
   'betway':      { name: 'Betway',      deposit: 'Naira, bank, card',    url: 'https://betway.com.ng',    tier: 2 },
+  'bet9ja':      { name: 'Bet9ja',      deposit: 'Naira, bank, USSD',    url: 'https://bet9ja.com',       tier: 2 },
+  'sportybet':   { name: 'SportyBet',   deposit: 'Naira, bank, USSD',    url: 'https://sportybet.com',    tier: 2 },
+  'betika':      { name: 'Betika',      deposit: 'Mobile money',         url: 'https://betika.com',       tier: 2 },
+  'msport':      { name: 'MSport',      deposit: 'Naira, bank',          url: 'https://msport.com',       tier: 2 },
+  'melbet':      { name: 'MelBet',      deposit: 'Naira, crypto',        url: 'https://melbet.com',       tier: 2 },
+  'betwinner':   { name: 'BetWinner',   deposit: 'Naira, crypto',        url: 'https://betwinner.com',    tier: 2 },
 
   // Tier 3: Crypto-accessible books — expand coverage
   'marathonbet': { name: 'MarathonBet', deposit: 'Crypto, e-wallets',    url: 'https://marathonbet.com',  tier: 3 },

@@ -47,20 +47,21 @@ function setCache(key: string, data: NormalizedOdds[], source: string) {
 // ─── OddsPapi Tournament IDs ───────────────────────────────────────────
 
 // OddsPapi uses sportId, not tournament IDs — more reliable
+// VERIFIED sport IDs from OddsPapi /v4/sports endpoint
 const ODDSPAPI_SPORT_IDS: Record<string, number> = {
-  'soccer_epl':                10,
+  'soccer_epl':                10,   // Soccer
   'soccer_spain_la_liga':      10,
   'soccer_italy_serie_a':     10,
   'soccer_germany_bundesliga': 10,
   'soccer_france_ligue_one':   10,
   'soccer_uefa_champs_league': 10,
-  'basketball_nba':            2,
-  'basketball_euroleague':     2,
-  'baseball_mlb':              3,
-  'icehockey_nhl':             4,
-  'tennis_atp_french_open':    5,
-  'tennis_wta_french_open':    5,
-  'mma_mixed_martial_arts':    7,
+  'basketball_nba':            11,   // Basketball (was 2 — WRONG)
+  'basketball_euroleague':     11,
+  'baseball_mlb':              13,   // Baseball (was 3 — WRONG)
+  'icehockey_nhl':             15,   // Ice Hockey (was 4 — WRONG)
+  'tennis_atp_french_open':    12,   // Tennis (was 5 — WRONG)
+  'tennis_wta_french_open':    12,
+  'mma_mixed_martial_arts':    20,   // MMA (was 7 — WRONG)
 };
 
 // Cache for tournament IDs discovered from the API
