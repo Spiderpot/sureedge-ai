@@ -18,6 +18,7 @@ interface SurebetOutcome {
   nigeriaAccess?: boolean;
   depositMethod?: string;
   bookmakerUrl?: string;
+  tier?: number;
 }
 
 interface Surebet {
@@ -35,6 +36,9 @@ interface Surebet {
   riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
   bookmakerCount: number;
   accessTag?: string;
+  hasPinnacle?: boolean;
+  hasSharpSoft?: boolean;
+  priorityScore?: number;
   outcomes: SurebetOutcome[];
   status: string;
   detectedAt: string;
@@ -145,7 +149,15 @@ function SurebetCard({ sb, rank, onCalculate, onExecute }: { sb: Surebet; rank: 
               <span className="text-lg">{sportIcon(sb.sport)}</span>
               <h3 className="font-semibold text-white text-sm">{sb.match}</h3>
             </div>
-            <p className="text-xs text-gray-500 mt-0.5">{sb.sport}</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {sb.sport}
+              {sb.hasPinnacle && (
+                <span className="ml-2 text-[9px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded font-medium">PINNACLE</span>
+              )}
+              {sb.hasSharpSoft && (
+                <span className="ml-1 text-[9px] bg-purple-500/20 text-purple-400 px-1.5 py-0.5 rounded font-medium">SHARP+SOFT</span>
+              )}
+            </p>
           </div>
         </div>
         <div className="text-right">
@@ -172,6 +184,15 @@ function SurebetCard({ sb, rank, onCalculate, onExecute }: { sb: Surebet; rank: 
                   {o.nigeriaAccess !== undefined && (
                     <span className={`ml-1.5 text-[9px] px-1 py-0.5 rounded ${o.nigeriaAccess ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/15 text-red-400'}`}>
                       {o.nigeriaAccess ? 'NG \u2713' : 'VPN'}
+                    </span>
+                  )}
+                  {o.tier && o.tier <= 3 && (
+                    <span className={`ml-1 text-[9px] px-1 py-0.5 rounded ${
+                      o.tier === 1 ? 'bg-blue-500/20 text-blue-400' :
+                      o.tier === 2 ? 'bg-emerald-500/15 text-emerald-400' :
+                      'bg-gray-500/15 text-gray-400'
+                    }`}>
+                      {o.tier === 1 ? 'SHARP' : o.tier === 2 ? 'NAIRA' : 'CRYPTO'}
                     </span>
                   )}
                 </div>

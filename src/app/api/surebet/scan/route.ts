@@ -3,40 +3,48 @@ import { NextRequest } from 'next/server';
 import { success, error } from '@/lib/api-response';
 import { smartScan, NormalizedOdds } from '@/lib/odds-engine';
 
-const SPORT_MAP: Record<string, string> = {
-  football:   'soccer_epl',
-  soccer:     'soccer_epl',
-  basketball: 'basketball_nba',
-  tennis:     'tennis_atp_french_open',
-  baseball:   'baseball_mlb',
-  hockey:     'icehockey_nhl',
-  mma:        'mma_mixed_martial_arts',
-  all:        'all',
+// Full sport mapping — all active leagues
+const SPORT_MAP: Record<string, string[]> = {
+  football:   ['soccer_epl', 'soccer_spain_la_liga', 'soccer_italy_serie_a', 'soccer_germany_bundesliga', 'soccer_france_ligue_one', 'soccer_uefa_champs_league'],
+  soccer:     ['soccer_epl', 'soccer_spain_la_liga', 'soccer_italy_serie_a'],
+  basketball: ['basketball_nba', 'basketball_euroleague'],
+  tennis:     ['tennis_atp_french_open', 'tennis_wta_french_open'],
+  baseball:   ['baseball_mlb'],
+  hockey:     ['icehockey_nhl'],
+  mma:        ['mma_mixed_martial_arts'],
 };
 
-const FOOTBALL_LEAGUES = [
-  'soccer_epl',
-  'soccer_spain_la_liga',
+// "All Sports" — scan best arb sports first (ranked by historical arb frequency)
+const ALL_SPORTS_RANKED = [
+  'basketball_nba',            // #1 — most bookmaker competition, highest arb %
+  'soccer_epl',                // #2 — massive global coverage, Pinnacle vs 1xBet gold
+  'baseball_mlb',              // #3 — high volume, good spreads
+  'soccer_spain_la_liga',      // #4 — top European league
+  'icehockey_nhl',             // #5 — decent arb frequency
+  'tennis_atp_french_open',    // #6 — 2-way market = clean arbs
+  'mma_mixed_martial_arts',    // #7 — sharp line movements
+  'soccer_uefa_champs_league', // #8 — massive when in season
 ];
 
-const ALL_SPORTS = [
-  'soccer_epl',
-  'baseball_mlb',
-];
+// Nigeria-accessible bookmakers — RANKED by arb value
+// Pinnacle is #1 priority — sharpest odds, creates biggest spreads vs soft books
+const NG_BOOKMAKERS: Record<string, { name: string; deposit: string; url: string; tier: number }> = {
+  // Tier 1: Sharp books — these CREATE arb opportunities
+  'pinnacle':    { name: 'Pinnacle',    deposit: 'Crypto (USDT TRC-20)',  url: 'https://pinnacle.com',     tier: 1 },
 
-// Nigeria-accessible bookmakers
-const NG_BOOKMAKERS: Record<string, { name: string; deposit: string; url: string }> = {
-  '1xbet':       { name: '1xBet',       deposit: 'Naira, bank, USSD',  url: 'https://1xbet.ng' },
-  'onexbet':     { name: '1xBet',       deposit: 'Naira, bank, USSD',  url: 'https://1xbet.ng' },
-  'betway':      { name: 'Betway',      deposit: 'Naira, bank, card',  url: 'https://betway.com.ng' },
-  '22bet':       { name: '22Bet',       deposit: 'Naira, bank, crypto', url: 'https://22bet.ng' },
-  'marathonbet': { name: 'MarathonBet', deposit: 'Crypto, e-wallets',  url: 'https://marathonbet.com' },
-  'pinnacle':    { name: 'Pinnacle',    deposit: 'Crypto, agents',     url: 'https://pinnacle.com' },
-  'sport888':    { name: '888sport',    deposit: 'E-wallets',          url: 'https://888sport.com' },
-  'betonlineag': { name: 'BetOnline',   deposit: 'Crypto',            url: 'https://betonline.ag' },
-  'bovada':      { name: 'Bovada',      deposit: 'Crypto',            url: 'https://bovada.lv' },
-  'mybookieag':  { name: 'MyBookie',    deposit: 'Crypto',            url: 'https://mybookie.ag' },
-  'betus':       { name: 'BetUS',       deposit: 'Crypto',            url: 'https://betus.com.pa' },
+  // Tier 2: Soft books with Naira deposit — these are the OTHER side of the arb  
+  '1xbet':       { name: '1xBet',       deposit: 'Naira, bank, USSD',    url: 'https://1xbet.ng',         tier: 2 },
+  'onexbet':     { name: '1xBet',       deposit: 'Naira, bank, USSD',    url: 'https://1xbet.ng',         tier: 2 },
+  '22bet':       { name: '22Bet',       deposit: 'Naira, bank, crypto',  url: 'https://22bet.ng',         tier: 2 },
+  'betway':      { name: 'Betway',      deposit: 'Naira, bank, card',    url: 'https://betway.com.ng',    tier: 2 },
+
+  // Tier 3: Crypto-accessible books — expand coverage
+  'marathonbet': { name: 'MarathonBet', deposit: 'Crypto, e-wallets',    url: 'https://marathonbet.com',  tier: 3 },
+  'betonlineag': { name: 'BetOnline',   deposit: 'Crypto (BTC/USDT)',    url: 'https://betonline.ag',     tier: 3 },
+  'bovada':      { name: 'Bovada',      deposit: 'Crypto (BTC/USDT)',    url: 'https://bovada.lv',        tier: 3 },
+  'mybookieag':  { name: 'MyBookie',    deposit: 'Crypto',               url: 'https://mybookie.ag',      tier: 3 },
+  'betus':       { name: 'BetUS',       deposit: 'Crypto',               url: 'https://betus.com.pa',     tier: 3 },
+  'sport888':    { name: '888sport',    deposit: 'E-wallets',            url: 'https://888sport.com',     tier: 3 },
 };
 
 function isNGAccessible(key: string): boolean {
@@ -47,12 +55,18 @@ function getNG(key: string) {
   return NG_BOOKMAKERS[key.toLowerCase()] || null;
 }
 
+function getTier(key: string): number {
+  return NG_BOOKMAKERS[key.toLowerCase()]?.tier || 99;
+}
+
 function detectArbitrage(event: NormalizedOdds) {
   if (event.bookmakers.length < 2) return [];
 
+  // Find best odds per outcome across ALL bookmakers
   const bestOdds: Record<string, { odds: number; key: string; title: string }> = {};
   for (const bm of event.bookmakers) {
     for (const o of bm.outcomes) {
+      if (o.price <= 1.01) continue; // Filter garbage odds
       if (!bestOdds[o.name] || o.price > bestOdds[o.name].odds) {
         bestOdds[o.name] = { odds: o.price, key: bm.key, title: bm.title };
       }
@@ -67,8 +81,21 @@ function detectArbitrage(event: NormalizedOdds) {
 
   if (arbFraction >= 1.05) return [];
 
+  // Nigeria filter — both bookmakers must be accessible
   const allNG = outcomes.every(([, o]) => isNGAccessible(o.key));
-  if (!allNG) return []; // Nigeria-only filter
+  if (!allNG) return [];
+
+  // Priority scoring: Pinnacle arbs rank higher
+  const hasPinnacle = outcomes.some(([, o]) => o.key.toLowerCase() === 'pinnacle');
+  const hasSharpSoft = outcomes.some(([, o]) => getTier(o.key) === 1) && 
+                       outcomes.some(([, o]) => getTier(o.key) >= 2);
+  
+  // Risk assessment
+  let riskLevel: string;
+  if (arbFraction < 1.0 && hasPinnacle) riskLevel = 'LOW';      // Best: sharp + soft = reliable
+  else if (arbFraction < 1.0)           riskLevel = 'LOW';       // Genuine arb
+  else if (arbFraction < 1.02)          riskLevel = 'MEDIUM';    // Near-arb, might flip
+  else                                  riskLevel = 'HIGH';      // Wide margin, less reliable
 
   return [{
     id:             `arb_${event.eventId}_${Date.now()}`,
@@ -82,9 +109,12 @@ function detectArbitrage(event: NormalizedOdds) {
     profit:         arbPct,
     roi:            arbPct,
     isGenuineArb:   arbFraction < 1.0,
-    riskLevel:      arbFraction < 1.0 ? 'LOW' : 'MEDIUM',
+    riskLevel,
     bookmakerCount: event.bookmakers.length,
     accessTag:      'FULL_ACCESS',
+    hasPinnacle,
+    hasSharpSoft,
+    priorityScore:  (arbPct * 10) + (hasPinnacle ? 50 : 0) + (hasSharpSoft ? 30 : 0),
     outcomes: outcomes.map(([name, o]) => {
       const ng = getNG(o.key);
       return {
@@ -96,6 +126,7 @@ function detectArbitrage(event: NormalizedOdds) {
         nigeriaAccess: true,
         depositMethod: ng?.deposit || '',
         bookmakerUrl:  ng?.url || '',
+        tier:          getTier(o.key),
       };
     }),
     status:     'active',
@@ -109,11 +140,13 @@ async function handleScan(sport: string) {
   let sportsToScan: string[];
 
   if (sportLower === 'all') {
-    sportsToScan = ALL_SPORTS;
-  } else if (sportLower === 'football' || sportLower === 'soccer') {
-    sportsToScan = FOOTBALL_LEAGUES;
+    // Scan top 3 sports to balance coverage vs API cost
+    sportsToScan = ALL_SPORTS_RANKED.slice(0, 3);
+  } else if (SPORT_MAP[sportLower]) {
+    // Individual sport — scan up to 2 leagues
+    sportsToScan = SPORT_MAP[sportLower].slice(0, 2);
   } else {
-    sportsToScan = [SPORT_MAP[sportLower] ?? 'basketball_nba'];
+    sportsToScan = ['basketball_nba'];
   }
 
   const allSurebets: Record<string, unknown>[] = [];
@@ -121,28 +154,28 @@ async function handleScan(sport: string) {
   const allSources = new Set<string>();
   let quotaUsed = 0;
   let quotaRemaining = 0;
-  let totalScanned = 0;
+  let totalEvents = 0;
 
   for (const sportKey of sportsToScan) {
     const result = await smartScan(sportKey);
-
     quotaUsed = result.quotaUsed || quotaUsed;
     quotaRemaining = result.quotaRemaining || quotaRemaining;
     allDebug.push(...result.debug);
     result.sources.forEach(s => allSources.add(s));
 
     for (const event of result.events) {
-      const arbs = detectArbitrage(event);
-      totalScanned++;
-      allSurebets.push(...arbs);
+      totalEvents++;
+      allSurebets.push(...detectArbitrage(event));
     }
   }
 
-  allSurebets.sort((a, b) => (b.arbPercentage as number) - (a.arbPercentage as number));
+  // Sort by priority score: Pinnacle arbs first, then by arb %
+  allSurebets.sort((a, b) => (b.priorityScore as number) - (a.priorityScore as number));
 
   return {
     surebets: allSurebets,
-    totalScanned,
+    totalEvents,
+    sportsScanned: sportsToScan,
     sources: [...allSources],
     quotaUsed,
     quotaRemaining,
@@ -156,7 +189,8 @@ export async function GET(request: NextRequest) {
     const result = await handleScan(sport);
     return success({
       totalFound:     result.surebets.length,
-      totalScanned:   result.totalScanned,
+      totalEvents:    result.totalEvents,
+      sportsScanned:  result.sportsScanned,
       sources:        result.sources,
       quotaUsed:      result.quotaUsed,
       quotaRemaining: result.quotaRemaining,
@@ -177,7 +211,8 @@ export async function POST(request: NextRequest) {
     const result = await handleScan(sport);
     return success({
       totalFound:     result.surebets.length,
-      totalScanned:   result.totalScanned,
+      totalEvents:    result.totalEvents,
+      sportsScanned:  result.sportsScanned,
       sources:        result.sources,
       quotaUsed:      result.quotaUsed,
       quotaRemaining: result.quotaRemaining,
