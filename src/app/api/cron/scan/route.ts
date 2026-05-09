@@ -55,7 +55,7 @@ async function fetchOddsPapi(sportKey: string, log: string[]) {
     if (withOdds.length === 0) return [];
 
     // Get odds for top 3 fixtures (each call returns ALL 350+ bookmakers)
-    const events = [];
+    const events: { id: string; sport_title: string; home_team: string; away_team: string; commence_time: string; bookmakers: { key: string; title: string; markets: { key: string; outcomes: { name: string; price: number }[] }[] }[] }[] = [];
     const marketId = sportKey.startsWith('soccer') ? '101' : '111';
 
     for (const fixture of withOdds.slice(0, 3)) {
@@ -78,7 +78,7 @@ async function fetchOddsPapi(sportKey: string, log: string[]) {
       const awayTeam = fixture.participant2Name || '';
 
       // Convert OddsPapi format to The Odds API format (what arb-detector expects)
-      const bookmakers = [];
+      const bookmakers: { key: string; title: string; markets: { key: string; outcomes: { name: string; price: number }[] }[] }[] = [];
       for (const [slug, bmData] of Object.entries(bookmakerOdds)) {
         const bm = bmData as Record<string, unknown>;
         const markets = bm.markets as Record<string, Record<string, unknown>> | undefined;

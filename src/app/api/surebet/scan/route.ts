@@ -43,7 +43,7 @@ async function fetchOddsPapi(sportKey: string) {
     if (fixtures.length === 0) return [];
 
     const marketId = sportKey.startsWith('soccer') ? '101' : '111';
-    const events = [];
+    const events: { id: string; sport_title: string; home_team: string; away_team: string; commence_time: string; bookmakers: { key: string; title: string; markets: { key: string; outcomes: { name: string; price: number }[] }[] }[] }[] = [];
 
     for (const fixture of fixtures.slice(0, 3)) {
       const oddsRes = await fetch(`${ODDSPAPI_BASE}/odds?` + new URLSearchParams({
@@ -55,7 +55,7 @@ async function fetchOddsPapi(sportKey: string) {
       const bookmakerOdds = oddsData.bookmakerOdds || {};
       const homeTeam = fixture.participant1Name || '';
       const awayTeam = fixture.participant2Name || '';
-      const bookmakers = [];
+      const bookmakers: { key: string; title: string; markets: { key: string; outcomes: { name: string; price: number }[] }[] }[] = [];
 
       for (const [slug, bmData] of Object.entries(bookmakerOdds)) {
         const markets = (bmData as Record<string, unknown>).markets as Record<string, Record<string, unknown>> | undefined;
