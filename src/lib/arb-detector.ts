@@ -1,11 +1,12 @@
 /**
- * SureEdge AI — Arbitrage Detection Engine
+ * SureEdge AI — Arbitrage Detection Engine v2
  * 
- * Professional arb detection:
- * - Compares ALL bookmakers simultaneously (not pairwise)
- * - Quality scoring based on reliability + accessibility
- * - Confidence rating per arb
- * - Stake optimization using Dutching formula
+ * Professional arb detection with:
+ * - Confidence tiers based on arb %
+ * - False positive filtering
+ * - Quality scoring
+ * - Stake calculation with rounding
+ * - Validation warnings
  */
 
 import {
@@ -23,9 +24,12 @@ export interface ArbOutcome {
   access: AccessLevel;
   isFunded: boolean;
   impliedProb: number;
-  stake: number;         // For $10 total
+  stake: number;
+  stakeRounded: number;
   potentialReturn: number;
 }
+
+export type ArbTier = 'EXECUTE' | 'VERIFY' | 'SUSPICIOUS' | 'NEAR_ARB';
 
 export interface DetectedArb {
   id: string;
@@ -34,21 +38,58 @@ export interface DetectedArb {
   league: string;
   commenceTime: string;
   arbPercentage: number;
-  guaranteedProfit: number;  // In dollars for $10 stake
+  guaranteedProfit: number;
   isGenuineArb: boolean;
-  confidence: number;        // 0-100
+  tier: ArbTier;
+  tierLabel: string;
+  confidence: number;
   qualityScore: number;
   accessTag: string;
   bothFunded: boolean;
   hasPinnacle: boolean;
   riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
   bookmakerCount: number;
+  warnings: string[];
   outcomes: ArbOutcome[];
   expiresAt: string;
   detectedAt: string;
 }
 
-interface RawEvent {
+const TOTAL_STAKE = 10;
+
+// Classify arb into actionability tiers
+function classifyArb(arbPct: number, isGenuine: boolean, bookmakerCount: number, hasPinnacle: boolean): { tier: ArbTier; tierLabel: string; warnings: string[] } {
+  const warnings: string[] = [];
+
+  if (!isGenuine) {
+    return { tier: 'NEAR_ARB', tierLabel: 'Near-arb — monitor for flip', warnings };
+  }
+
+  if (arbPct > 15) {
+    warnings.push('Arb above 15% — likely stale/incorrect odds');
+    warnings.push('VERIFY on live bookmaker sites before betting');
+    warnings.push('One or both odds may have already corrected');
+    return { tier: 'SUSPICIOUS', tierLabel: 'VERIFY FIRST — likely data error', warnings };
+  }
+
+  if (arbPct > 8) {
+    warnings.push('High arb % — verify odds are still live');
+    warnings.push('Check bookmaker sites directly before placing');
+    if (bookmakerCount < 10) warnings.push('Low bookmaker coverage — less reliable');
+    return { tier: 'VERIFY', tierLabel: 'Verify odds are live, then execute', warnings };
+  }
+
+  // 0-8% — sweet spot for real arbs
+  if (hasPinnacle) {
+    warnings.push('Pinnacle involved — high reliability');
+  }
+  if (bookmakerCount > 20) {
+    warnings.push('Strong market coverage — odds likely accurate');
+  }
+  return { tier: 'EXECUTE', tierLabel: 'ACT NOW — verified range', warnings };
+}
+
+export function detectArbitrage(event: {
   id: string;
   sport_title: string;
   home_team: string;
@@ -59,21 +100,17 @@ interface RawEvent {
     title: string;
     markets: { key: string; outcomes: { name: string; price: number }[] }[];
   }[];
-}
-
-const TOTAL_STAKE = 10; // Default stake for calculations
-
-export function detectArbitrage(event: RawEvent, minArbPct: number = 0): DetectedArb[] {
+}, minArbPct: number = 0): DetectedArb[] {
   if (event.bookmakers.length < 2) return [];
 
-  // Step 1: Find BEST odds per outcome across ALL bookmakers
   const bestOdds: Record<string, { odds: number; key: string; title: string }> = {};
-  
+
   for (const bm of event.bookmakers) {
     const market = bm.markets.find(m => m.key === 'h2h');
     if (!market) continue;
     for (const o of market.outcomes) {
-      if (o.price <= 1.01) continue; // Filter garbage
+      if (o.price <= 1.01) continue;
+      if (o.price > 50) continue; // Filter obvious errors
       if (!bestOdds[o.name] || o.price > bestOdds[o.name].odds) {
         bestOdds[o.name] = { odds: o.price, key: bm.key, title: bm.title };
       }
@@ -83,15 +120,24 @@ export function detectArbitrage(event: RawEvent, minArbPct: number = 0): Detecte
   const outcomes = Object.entries(bestOdds);
   if (outcomes.length < 2) return [];
 
-  // Step 2: Calculate arbitrage
+  // Check for duplicate bookmaker (same book on both sides = not a real arb)
+  const uniqueBooks = new Set(outcomes.map(([, o]) => o.key.toLowerCase()));
+  if (uniqueBooks.size < outcomes.length) return [];
+
   const arbFraction = outcomes.reduce((sum, [, o]) => sum + 1 / o.odds, 0);
   const arbPct = parseFloat(((1 - arbFraction) * 100).toFixed(3));
 
-  // Step 3: Apply threshold (show up to 5% overround for near-arbs)
   if (arbFraction >= 1.05) return [];
   if (arbPct < minArbPct && arbFraction >= 1.0) return [];
 
-  // Step 4: Calculate stakes using Dutching formula
+  const isGenuine = arbFraction < 1.0;
+  const bookSlugs = outcomes.map(([, o]) => o.key.toLowerCase());
+  const allFunded = bookSlugs.every(s => isFunded(s));
+  const allNG = bookSlugs.every(s => getAccessLevel(s) !== 'vpn');
+  const hasPinnacle = bookSlugs.some(s => s === 'pinnacle');
+  const accessTag = allFunded ? '\u2705 YOUR BOOKS' : allNG ? '\u{1F1F3}\u{1F1EC} NG ACCESS' : '\u{1F310} VPN';
+
+  // Calculate stakes
   const arbOutcomes: ArbOutcome[] = outcomes.map(([name, o]) => {
     const stake = parseFloat(((1 / o.odds / arbFraction) * TOTAL_STAKE).toFixed(2));
     return {
@@ -105,39 +151,30 @@ export function detectArbitrage(event: RawEvent, minArbPct: number = 0): Detecte
       isFunded:        isFunded(o.key),
       impliedProb:     parseFloat(((1 / o.odds) * 100).toFixed(2)),
       stake,
+      stakeRounded:    Math.round(stake),
       potentialReturn: parseFloat((stake * o.odds).toFixed(2)),
     };
   });
 
-  // Step 5: Determine access tag
-  const allFunded = arbOutcomes.every(o => o.isFunded);
-  const allNG     = arbOutcomes.every(o => o.access !== 'vpn');
-  const accessTag = allFunded ? '✅ YOUR BOOKS' : allNG ? '🇳🇬 NG ACCESS' : '🌐 VPN';
+  // Classify tier
+  const { tier, tierLabel, warnings } = classifyArb(arbPct, isGenuine, event.bookmakers.length, hasPinnacle);
 
-  // Step 6: Quality and confidence scoring
-  const bookSlugs = arbOutcomes.map(o => o.bookmakerSlug);
-  const qScore = qualityScore(arbPct, bookSlugs);
-  const hasPinnacle = bookSlugs.some(s => s === 'pinnacle');
-  
-  // Confidence: Pinnacle involvement = high confidence (sharpest odds)
+  // Confidence scoring
   let confidence = 50;
-  if (hasPinnacle) confidence += 30;
-  if (allFunded) confidence += 15;
-  if (arbPct > 3) confidence += 5;
-  if (event.bookmakers.length > 10) confidence += 5; // More books = more reliable
-  confidence = Math.min(confidence, 100);
+  if (hasPinnacle) confidence += 25;
+  if (allFunded) confidence += 10;
+  if (event.bookmakers.length > 20) confidence += 10;
+  if (event.bookmakers.length > 40) confidence += 5;
+  if (tier === 'SUSPICIOUS') confidence -= 30;
+  if (tier === 'VERIFY') confidence -= 10;
+  confidence = Math.max(10, Math.min(100, confidence));
 
-  // Step 7: Risk assessment
-  const isGenuine = arbFraction < 1.0;
+  const qScore = qualityScore(arbPct, bookSlugs);
+  const guaranteedProfit = isGenuine ? parseFloat((TOTAL_STAKE * arbPct / 100).toFixed(2)) : 0;
+
   let riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' = 'MEDIUM';
-  if (isGenuine && hasPinnacle && confidence > 70) riskLevel = 'LOW';
-  else if (isGenuine) riskLevel = 'LOW';
-  else if (arbPct > -1) riskLevel = 'MEDIUM';
-  else riskLevel = 'HIGH';
-
-  const guaranteedProfit = isGenuine
-    ? parseFloat((TOTAL_STAKE * arbPct / 100).toFixed(2))
-    : 0;
+  if (tier === 'EXECUTE' && isGenuine) riskLevel = 'LOW';
+  else if (tier === 'SUSPICIOUS') riskLevel = 'HIGH';
 
   return [{
     id:              `arb_${event.id}_${Date.now()}`,
@@ -148,6 +185,8 @@ export function detectArbitrage(event: RawEvent, minArbPct: number = 0): Detecte
     arbPercentage:   arbPct,
     guaranteedProfit,
     isGenuineArb:    isGenuine,
+    tier,
+    tierLabel,
     confidence,
     qualityScore:    qScore,
     accessTag,
@@ -155,17 +194,18 @@ export function detectArbitrage(event: RawEvent, minArbPct: number = 0): Detecte
     hasPinnacle,
     riskLevel,
     bookmakerCount:  event.bookmakers.length,
+    warnings,
     outcomes:        arbOutcomes,
     expiresAt:       new Date(Date.now() + 5 * 60 * 1000).toISOString(),
     detectedAt:      new Date().toISOString(),
   }];
 }
 
-// Sort arbs by priority: quality score (funded + pinnacle first), then arb %
 export function sortArbs(arbs: DetectedArb[]): DetectedArb[] {
   return [...arbs].sort((a, b) => {
-    // Genuine arbs always first
-    if (a.isGenuineArb !== b.isGenuineArb) return a.isGenuineArb ? -1 : 1;
+    // EXECUTE tier first
+    const tierOrder: Record<ArbTier, number> = { EXECUTE: 0, VERIFY: 1, SUSPICIOUS: 2, NEAR_ARB: 3 };
+    if (tierOrder[a.tier] !== tierOrder[b.tier]) return tierOrder[a.tier] - tierOrder[b.tier];
     // Then by quality score
     return b.qualityScore - a.qualityScore;
   });
