@@ -65,7 +65,6 @@ const ODDSPAPI_SPORT_IDS: Record<string, number> = {
 };
 
 // Cache for tournament IDs discovered from the API
-const tournamentCache = new Map<number, number[]>();
 
 // Market IDs: 101 = 1X2 (soccer), 111 = Moneyline (basketball/baseball/hockey)
 function getMarketId(sportKey: string): string {
@@ -84,82 +83,72 @@ function getOutcomeLabels(sportKey: string): Record<string, string> {
 
 const ODDSPAPI_BASE = 'https://api.oddspapi.io/v4';
 
-// Step 1: Discover tournament IDs for a sport (cached, 1 request)
-// Step 2: Get odds by tournament (1 request, ALL bookmakers)
-async function discoverTournaments(sportId: number, apiKey: string): Promise<number[]> {
-  const cached = tournamentCache.get(sportId);
-  if (cached) return cached;
+// Fetch OddsPapi: fixtures → odds (ALL 350+ bookmakers per fixture)
+// Cost: 1 request for fixtures + 1 per fixture for odds = 3-4 requests per scan
 
-  try {
-    const url = `${ODDSPAPI_BASE}/tournaments?sportId=${sportId}&apiKey=${apiKey}`;
-    const res = await fetch(url, { cache: 'no-store' });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      console.error(`OddsPapi tournaments: ${res.status} ${res.statusText} — ${body.slice(0, 200)}`);
-      return [];
-    }
-    const data = await res.json();
-    const items = Array.isArray(data) ? data : [];
-    // Get tournaments with upcoming fixtures, sorted by most fixtures
-    const active = items
-      .filter((t: Record<string, unknown>) => 
-        ((t.futureFixtures as number) || 0) > 0 || ((t.upcomingFixtures as number) || 0) > 0
-      )
-      .sort((a: Record<string, unknown>, b: Record<string, unknown>) => 
-        ((b.upcomingFixtures as number) || 0) - ((a.upcomingFixtures as number) || 0)
-      )
-      .slice(0, 5) // Top 5 active tournaments
-      .map((t: Record<string, unknown>) => t.tournamentId as number);
-    
-    if (active.length > 0) {
-      tournamentCache.set(sportId, active);
-    }
-    return active;
-  } catch {
-    return [];
-  }
-}
-
-async function fetchOddsPapiByTournament(
+async function fetchOddsPapi(
   sportKey: string,
-  apiKey: string
+  apiKey: string,
+  debugLog: string[]
 ): Promise<NormalizedOdds[]> {
   const sportId = ODDSPAPI_SPORT_IDS[sportKey];
-  if (!sportId) return [];
-
-  // Auto-discover tournament IDs
-  const tournamentIds = await discoverTournaments(sportId, apiKey);
-  if (tournamentIds.length === 0) return [];
+  if (!sportId) { debugLog.push(`OddsPapi: unknown sport ${sportKey}`); return []; }
 
   const marketId = getMarketId(sportKey);
   const outcomeLabels = getOutcomeLabels(sportKey);
 
   try {
-    // This ONE request returns ALL fixtures with odds from ALL bookmakers
-    // for the specified tournaments. Most efficient endpoint.
-    const url = `${ODDSPAPI_BASE}/odds-by-tournaments?` + new URLSearchParams({
+    // Step 1: Get upcoming fixtures with odds (1 request)
+    const now = new Date();
+    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const fixturesUrl = `${ODDSPAPI_BASE}/fixtures?` + new URLSearchParams({
       apiKey,
-      tournamentIds: tournamentIds.join(','),
-      oddsFormat:    'decimal',
+      sportId: String(sportId),
+      hasOdds: 'true',
+      from: now.toISOString(),
+      to: tomorrow.toISOString(),
     });
 
-    const res = await fetch(url, { cache: 'no-store' });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      console.error(`OddsPapi odds-by-tournaments: ${res.status} ${res.statusText} — ${body.slice(0, 500)}`);
+    const fixturesRes = await fetch(fixturesUrl, { cache: 'no-store' });
+    if (!fixturesRes.ok) {
+      const body = await fixturesRes.text().catch(() => '');
+      debugLog.push(`OddsPapi fixtures: ${fixturesRes.status} — ${body.slice(0, 200)}`);
       return [];
     }
 
-    const data = await res.json();
-    const items = Array.isArray(data) ? data : [];
+    const fixturesData = await fixturesRes.json();
+    const fixtures = Array.isArray(fixturesData) ? fixturesData : [];
+    const withOdds = fixtures.filter((f: Record<string, unknown>) => f.hasOdds);
+
+    debugLog.push(`OddsPapi fixtures: ${fixtures.length} total, ${withOdds.length} with odds`);
+
+    if (withOdds.length === 0) return [];
+
+    // Step 2: Get odds for top 2 fixtures (each returns ALL 350+ bookmakers)
+    const topFixtures = withOdds.slice(0, 2);
     const events: NormalizedOdds[] = [];
 
-    for (const fixture of items) {
-      if (!fixture.hasOdds) continue;
+    for (const fixture of topFixtures) {
+      const fixtureId = fixture.fixtureId;
+      if (!fixtureId) continue;
 
-      const bookmakerOdds = fixture.bookmakerOdds || {};
+      const oddsUrl = `${ODDSPAPI_BASE}/odds?` + new URLSearchParams({
+        apiKey,
+        fixtureId: String(fixtureId),
+        oddsFormat: 'decimal',
+      });
+
+      const oddsRes = await fetch(oddsUrl, { cache: 'no-store' });
+      if (!oddsRes.ok) {
+        debugLog.push(`OddsPapi odds ${fixtureId}: ${oddsRes.status}`);
+        continue;
+      }
+
+      const oddsData = await oddsRes.json();
+      const bookmakerOdds = oddsData.bookmakerOdds || {};
+
       const ev: NormalizedOdds = {
-        eventId:      fixture.fixtureId || `op_${Date.now()}`,
+        eventId:      String(fixtureId),
         sport:        sportKey,
         sportTitle:   fixture.sportName || sportKey,
         homeTeam:     fixture.participant1Name || '',
@@ -168,7 +157,7 @@ async function fetchOddsPapiByTournament(
         bookmakers:   [],
       };
 
-      // Parse each bookmaker's odds
+      let bmCount = 0;
       for (const [slug, bmData] of Object.entries(bookmakerOdds)) {
         const bm = bmData as Record<string, unknown>;
         const markets = bm.markets as Record<string, Record<string, unknown>> | undefined;
@@ -194,22 +183,24 @@ async function fetchOddsPapiByTournament(
 
         if (outcomes.length >= 2) {
           ev.bookmakers.push({
-            key:     slug.toLowerCase(),
-            title:   slug.charAt(0).toUpperCase() + slug.slice(1),
-            market:  'h2h',
+            key: slug.toLowerCase(),
+            title: slug.charAt(0).toUpperCase() + slug.slice(1),
+            market: 'h2h',
             outcomes,
           });
+          bmCount++;
         }
       }
 
       if (ev.bookmakers.length >= 2 && ev.homeTeam) {
         events.push(ev);
+        debugLog.push(`  ${ev.homeTeam} vs ${ev.awayTeam}: ${bmCount} bookmakers`);
       }
     }
 
     return events;
   } catch (err) {
-    console.error('OddsPapi error:', err);
+    debugLog.push(`OddsPapi error: ${err}`);
     return [];
   }
 }
@@ -341,7 +332,7 @@ export async function smartScan(sportKey: string): Promise<ScanResult> {
   // Priority 1: OddsPapi (1 request = ALL bookmakers for ALL fixtures in tournament)
   const oddspapiKey = process.env.ODDSPAPI_API_KEY;
   if (oddspapiKey) {
-    const events = await fetchOddsPapiByTournament(sportKey, oddspapiKey);
+    const events = await fetchOddsPapi(sportKey, oddspapiKey, debug);
     if (events.length > 0) {
       allEvents.push(...events);
       sources.push('OddsPapi');

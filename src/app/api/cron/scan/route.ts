@@ -6,33 +6,30 @@ import { success, error } from '@/lib/api-response';
 import { sendTelegramAlert, formatArbAlert } from '@/lib/telegram';
 import { smartScan } from '@/lib/odds-engine';
 
-const NG_BOOKMAKERS: Record<string, { name: string; tier: number; deposit: string; url: string }> = {
-  // Tier 1: Sharp books
-  'pinnacle':    { name: 'Pinnacle',    tier: 1, deposit: 'Crypto (USDT TRC-20)', url: 'https://pinnacle.com' },
-  // Tier 2: Nigerian Naira books  
-  '1xbet':       { name: '1xBet',       tier: 2, deposit: 'Naira, bank, USSD',   url: 'https://1xbet.ng' },
-  'onexbet':     { name: '1xBet',       tier: 2, deposit: 'Naira, bank, USSD',   url: 'https://1xbet.ng' },
-  '22bet':       { name: '22Bet',       tier: 2, deposit: 'Naira, bank, crypto',  url: 'https://22bet.ng' },
-  'betway':      { name: 'Betway',      tier: 2, deposit: 'Naira, bank, card',    url: 'https://betway.com.ng' },
-  'bet9ja':      { name: 'Bet9ja',      tier: 2, deposit: 'Naira, bank, USSD',   url: 'https://bet9ja.com' },
-  'sportybet':   { name: 'SportyBet',   tier: 2, deposit: 'Naira, bank, USSD',   url: 'https://sportybet.com' },
-  'betika':      { name: 'Betika',      tier: 2, deposit: 'Mobile money',         url: 'https://betika.com' },
-  'msport':      { name: 'MSport',      tier: 2, deposit: 'Naira, bank',          url: 'https://msport.com' },
-  'melbet':      { name: 'MelBet',      tier: 2, deposit: 'Naira, crypto',        url: 'https://melbet.com' },
-  'betwinner':   { name: 'BetWinner',   tier: 2, deposit: 'Naira, crypto',        url: 'https://betwinner.com' },
-  // Tier 3: Crypto-accessible
-  'marathonbet': { name: 'MarathonBet', tier: 3, deposit: 'Crypto, e-wallets',    url: 'https://marathonbet.com' },
-  'betonlineag': { name: 'BetOnline',   tier: 3, deposit: 'Crypto (BTC/USDT)',    url: 'https://betonline.ag' },
-  'bovada':      { name: 'Bovada',      tier: 3, deposit: 'Crypto (BTC/USDT)',    url: 'https://bovada.lv' },
-  'mybookieag':  { name: 'MyBookie',    tier: 3, deposit: 'Crypto',               url: 'https://mybookie.ag' },
-  'betus':       { name: 'BetUS',       tier: 3, deposit: 'Crypto',               url: 'https://betus.com.pa' },
-  'sport888':    { name: '888sport',    tier: 3, deposit: 'E-wallets',            url: 'https://888sport.com' },
+// ONLY bookmakers you have funded accounts on — no point showing others
+const MY_BOOKMAKERS = new Set([
+  'pinnacle',     // Funded $10
+  '1xbet',        // Funded
+  'onexbet',      // Same as 1xbet
+  '22bet',        // Funded
+  // Add more as you create accounts:
+  // 'bet9ja',
+  // 'sportybet',
+]);
+
+const BM_INFO: Record<string, { name: string; deposit: string; url: string }> = {
+  'pinnacle':  { name: 'Pinnacle',  deposit: 'Crypto (USDT)',    url: 'https://pinnacle.com' },
+  '1xbet':     { name: '1xBet',     deposit: 'Naira, bank',      url: 'https://1xbet.ng' },
+  'onexbet':   { name: '1xBet',     deposit: 'Naira, bank',      url: 'https://1xbet.ng' },
+  '22bet':     { name: '22Bet',     deposit: 'Naira, crypto',    url: 'https://22bet.ng' },
+  'bet9ja':    { name: 'Bet9ja',    deposit: 'Naira, bank',      url: 'https://bet9ja.com' },
+  'sportybet': { name: 'SportyBet', deposit: 'Naira, bank',      url: 'https://sportybet.com' },
 };
 
-function isNG(key: string) { return key.toLowerCase() in NG_BOOKMAKERS; }
-function getNG(key: string) { return NG_BOOKMAKERS[key.toLowerCase()] || null; }
-
 const SPORT_ROTATION = ['basketball_nba', 'soccer_epl', 'baseball_mlb'];
+
+// Minimum arb % worth alerting — below this, profit is too small to act on
+const MIN_ARB_PCT = 1.0;
 
 interface NormalizedEvent {
   eventId: string;
@@ -46,8 +43,13 @@ interface NormalizedEvent {
 function detectArbitrage(event: NormalizedEvent) {
   if (event.bookmakers.length < 2) return [];
 
+  // Filter to ONLY bookmakers you have accounts on
+  const myBooks = event.bookmakers.filter(bm => MY_BOOKMAKERS.has(bm.key.toLowerCase()));
+  if (myBooks.length < 2) return [];
+
+  // Find best odds across YOUR bookmakers only
   const bestOdds: Record<string, { odds: number; key: string; title: string }> = {};
-  for (const bm of event.bookmakers) {
+  for (const bm of myBooks) {
     for (const o of bm.outcomes) {
       if (o.price <= 1.01) continue;
       if (!bestOdds[o.name] || o.price > bestOdds[o.name].odds) {
@@ -62,8 +64,9 @@ function detectArbitrage(event: NormalizedEvent) {
   const arbFraction = outcomes.reduce((sum, [, o]) => sum + 1 / o.odds, 0);
   const arbPct = parseFloat(((1 - arbFraction) * 100).toFixed(3));
 
+  // Only return arbs above minimum threshold
   if (arbFraction >= 1.05) return [];
-  if (!outcomes.every(([, o]) => isNG(o.key))) return [];
+  if (arbPct < MIN_ARB_PCT && arbFraction >= 1.0) return []; // Near-arbs below 1% = skip
 
   const hasPinnacle = outcomes.some(([, o]) => o.key.toLowerCase() === 'pinnacle');
 
@@ -73,18 +76,18 @@ function detectArbitrage(event: NormalizedEvent) {
     arbPercentage: arbPct,
     isGenuineArb:  arbFraction < 1.0,
     hasPinnacle,
-    hasSharpSoft:  hasPinnacle && outcomes.some(([, o]) => (getNG(o.key)?.tier || 99) >= 2),
+    hasSharpSoft:  hasPinnacle && outcomes.some(([, o]) => o.key.toLowerCase() !== 'pinnacle'),
     riskLevel:     (arbFraction < 1.0 ? 'LOW' : 'MEDIUM') as string,
     outcomes: outcomes.map(([name, o]) => {
-      const ng = getNG(o.key);
+      const info = BM_INFO[o.key.toLowerCase()];
       return {
         outcome:       name,
         odds:          o.odds,
-        bookmaker:     ng?.name || o.title,
+        bookmaker:     info?.name || o.title,
         impliedProb:   parseFloat(((1 / o.odds) * 100).toFixed(2)),
-        depositMethod: ng?.deposit || '',
-        bookmakerUrl:  ng?.url || '',
-        tier:          ng?.tier || 99,
+        depositMethod: info?.deposit || '',
+        bookmakerUrl:  info?.url || '',
+        tier:          o.key.toLowerCase() === 'pinnacle' ? 1 : 2,
       };
     }),
   }];
@@ -107,14 +110,13 @@ export async function GET(request: NextRequest) {
   const sportKey = SPORT_ROTATION[rotationIndex];
 
   const log: string[] = [];
-  log.push(`Scanning: ${sportKey} (rotation ${rotationIndex + 1}/${SPORT_ROTATION.length})`);
+  log.push(`Scanning: ${sportKey}`);
 
   let quotaUsed = 0;
   let quotaRemaining = 0;
   const allArbs: ReturnType<typeof detectArbitrage> = [];
 
   try {
-    // Use smartScan — tries OddsPapi first, falls back to The Odds API
     const result = await smartScan(sportKey);
     quotaUsed = result.quotaUsed;
     quotaRemaining = result.quotaRemaining;
@@ -127,34 +129,25 @@ export async function GET(request: NextRequest) {
     log.push(`Error: ${String(e)}`);
   }
 
-  // Sort by arb percentage
   allArbs.sort((a, b) => b.arbPercentage - a.arbPercentage);
 
   const genuineArbs = allArbs.filter(a => a.isGenuineArb);
-  const nearArbs    = allArbs.filter(a => !a.isGenuineArb);
-  let telegramSent  = 0;
+  let telegramSent = 0;
 
-  // ALWAYS send alerts for genuine arbs
+  // ONLY alert for genuine arbs above 1% — nothing else
   for (const arb of genuineArbs) {
-    if (await sendTelegramAlert(formatArbAlert(arb))) telegramSent++;
+    if (arb.arbPercentage >= MIN_ARB_PCT) {
+      if (await sendTelegramAlert(formatArbAlert(arb))) telegramSent++;
+    }
   }
 
-  // Only notify when there are NO genuine arbs — once per hour max
-  if (genuineArbs.length === 0 && new Date().getMinutes() < 15) {
-    const summary = nearArbs.length > 0
-      ? `\u{1F50D} <b>${sportKey.replace('_', ' ')}</b>: ${nearArbs.length} near-arbs but no guaranteed profit yet. Monitoring...`
-      : `\u{1F50D} <b>${sportKey.replace('_', ' ')}</b>: No opportunities. Next scan in 15 min.`;
-    await sendTelegramAlert(summary);
-    telegramSent++;
-  }
-
-  log.push(`Genuine: ${genuineArbs.length}, Near-arbs: ${nearArbs.length}, Telegram: ${telegramSent}`);
+  log.push(`Found: ${genuineArbs.length} arbs (${genuineArbs.filter(a => a.arbPercentage >= MIN_ARB_PCT).length} above ${MIN_ARB_PCT}%), Telegram: ${telegramSent}`);
 
   return success({
     scannedAt:     new Date().toISOString(),
     sport:         sportKey,
     genuineArbs:   genuineArbs.length,
-    nearArbs:      nearArbs.length,
+    profitableArbs: genuineArbs.filter(a => a.arbPercentage >= MIN_ARB_PCT).length,
     telegramSent,
     quotaUsed,
     quotaRemaining,
