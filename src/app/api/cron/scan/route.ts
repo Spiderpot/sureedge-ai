@@ -9,7 +9,7 @@ const ODDS_API_BASE = 'https://api.the-odds-api.com/v4';
 const SPORT_ROTATION = ['basketball_nba', 'soccer_epl', 'baseball_mlb'];
 
 // Minimum arb % to alert
-const MIN_ARB_PCT = 0.5;
+const MIN_ARB_PCT = 2.5;
 
 // Your funded bookmakers — arbs with BOTH from this list get priority
 const FUNDED = new Set(['pinnacle', '1xbet', 'onexbet', '22bet']);
