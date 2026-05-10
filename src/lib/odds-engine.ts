@@ -187,26 +187,48 @@ async function fetchOddsPapi(sportKey: string, debug: string[]): Promise<Normali
   }
 }
 
-// ─── odds-api.io (SECONDARY — 265+ bookmakers, 100 req/hour) ─────────────
+// ─── odds-api.io (SECONDARY — 241 bookmakers, 100 req/hour, hourly reset) ────
+// Has: 1xBet ✅ 22Bet ✅ Betfair ✅ Bet365 ✅ Bet9ja ✅ SportyBet ✅ Betway ✅
+// No Pinnacle on free tier
+// Arbitrage endpoint locked to 2 bookmakers on free — use manual detection instead
+
+// Bookmakers to request from odds-api.io (max useful subset)
+const OIO_TARGET_BOOKS = [
+  '1xbet', '22Bet', 'Bet365', 'Betfair Exchange', 'Betfair Sportsbook',
+  'Betway', 'Bet9ja', 'SportyBet', 'MelBet', 'BetWinner',
+  'SingBet', 'Unibet', 'WilliamHill', 'NetBet', 'Tipico DE',
+  'Bwin ES', 'Bwin FR', 'Bwin IT', 'Bodog', 'Bovada',
+  'BetOnline.ag', 'LowVig AG', 'MegaPari',
+].join(',');
+
+// Sport slug mapping for odds-api.io
+const OIO_SPORT_SLUGS: Record<string, string> = {
+  'soccer_epl':                'football',
+  'soccer_spain_la_liga':      'football',
+  'soccer_italy_serie_a':      'football',
+  'soccer_germany_bundesliga': 'football',
+  'soccer_france_ligue_one':   'football',
+  'soccer_uefa_champs_league': 'football',
+  'basketball_nba':            'basketball',
+  'baseball_mlb':              'baseball',
+  'icehockey_nhl':             'ice-hockey',
+  'tennis_atp_french_open':    'tennis',
+  'tennis_wta_french_open':    'tennis',
+  'mma_mixed_martial_arts':    'mma',
+};
 
 async function fetchOddsApiIo(sportKey: string, debug: string[]): Promise<NormalizedOdds[]> {
   const apiKey = process.env.ODDS_API_IO_KEY;
   if (!apiKey) { debug.push('odds-api.io: key not set'); return []; }
 
-  try {
-    // Map our sport key to odds-api.io sport slug
-    const sportSlug = sportKey.includes('soccer') ? 'football'
-      : sportKey.includes('basketball') ? 'basketball'
-      : sportKey.includes('baseball') ? 'baseball'
-      : sportKey.includes('hockey') ? 'ice-hockey'
-      : sportKey.includes('tennis') ? 'tennis'
-      : sportKey.includes('mma') ? 'mma'
-      : 'football';
+  const sportSlug = OIO_SPORT_SLUGS[sportKey];
+  if (!sportSlug) { debug.push(`odds-api.io: no slug for ${sportKey}`); return []; }
 
-    // Step 1: Get events
+  try {
+    // Get upcoming events (not cancelled)
     const evRes = await fetch(
       `https://api.odds-api.io/v3/events?` + new URLSearchParams({
-        apiKey, sport: sportSlug, limit: '10',
+        apiKey, sport: sportSlug, status: 'upcoming', limit: '10',
       }),
       { cache: 'no-store' }
     );
@@ -214,46 +236,46 @@ async function fetchOddsApiIo(sportKey: string, debug: string[]): Promise<Normal
     if (evRes.status === 429) { debug.push('odds-api.io: rate limit (100/hr)'); return []; }
     if (!evRes.ok) {
       const body = await evRes.text().catch(() => '');
-      debug.push(`odds-api.io events: ${evRes.status} — ${body.slice(0, 150)}`);
+      debug.push(`odds-api.io events: ${evRes.status} — ${body.slice(0, 100)}`);
       return [];
     }
 
-    const evData  = await evRes.json() as Record<string, unknown>;
-    const evItems = (Array.isArray(evData) ? evData : (evData.data ?? evData.events ?? [])) as
-      Record<string, unknown>[];
-
-    debug.push(`odds-api.io: ${evItems.length} events`);
+    const evData = await evRes.json() as Record<string, unknown>[];
+    const evItems = Array.isArray(evData) ? evData : [];
+    debug.push(`odds-api.io: ${evItems.length} upcoming events`);
     if (evItems.length === 0) return [];
 
     const events: NormalizedOdds[] = [];
 
     for (const ev of evItems.slice(0, 3)) {
-      const eventId  = String(ev.id ?? ev.eventId ?? '');
-      if (!eventId) continue;
+      const eventId  = String((ev as Record<string, unknown>).id ?? '');
+      const homeTeam = String((ev as Record<string, unknown>).home ?? '');
+      const awayTeam = String((ev as Record<string, unknown>).away ?? '');
+      if (!eventId || !homeTeam) continue;
 
-      // Step 2: Get odds for this event
+      // Get odds for this event with our target bookmakers
       const oddsRes = await fetch(
         `https://api.odds-api.io/v3/odds?` + new URLSearchParams({
-          apiKey, eventId, market: 'moneyline',
+          apiKey, eventId, market: 'moneyline', bookmakers: OIO_TARGET_BOOKS,
         }),
         { cache: 'no-store' }
       );
 
       if (!oddsRes.ok) { debug.push(`odds-api.io odds ${eventId}: ${oddsRes.status}`); continue; }
 
-      const oddsData   = await oddsRes.json() as Record<string, unknown>;
-      const oddsItems  = (Array.isArray(oddsData) ? oddsData : (oddsData.data ?? oddsData.odds ?? [])) as
-        Record<string, unknown>[];
+      const oddsData = await oddsRes.json() as Record<string, unknown>[];
+      const oddsItems = Array.isArray(oddsData) ? oddsData : [];
 
       // Group odds by bookmaker
-      const bmMap: Record<string, { title: string; outcomes: { name: string; price: number }[] }> = {};
+      const bmMap: Record<string, { outcomes: { name: string; price: number }[] }> = {};
       for (const o of oddsItems) {
-        const bmRaw   = String(o.bookmaker ?? o.sportsbook ?? '');
-        const bmKey   = bmRaw.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const item     = o as Record<string, unknown>;
+        const bmName   = String(item.bookmaker ?? item.sportsbook ?? '');
+        const bmKey    = bmName.toLowerCase().replace(/[^a-z0-9]/g, '');
         if (!bmKey) continue;
-        if (!bmMap[bmKey]) bmMap[bmKey] = { title: bmRaw, outcomes: [] };
-        const outcome = String(o.outcome ?? o.selection ?? '');
-        const price   = Number(o.odds ?? o.price ?? 0);
+        if (!bmMap[bmKey]) bmMap[bmKey] = { outcomes: [] };
+        const outcome  = String(item.outcome ?? item.selection ?? item.name ?? '');
+        const price    = Number(item.odds ?? item.price ?? 0);
         if (outcome && price > 1.01 && price < 100) {
           bmMap[bmKey].outcomes.push({ name: outcome, price });
         }
@@ -261,19 +283,16 @@ async function fetchOddsApiIo(sportKey: string, debug: string[]): Promise<Normal
 
       const bookmakers = Object.entries(bmMap)
         .filter(([, bm]) => bm.outcomes.length >= 2)
-        .map(([key, bm]) => ({ key, title: bm.title, market: 'h2h', outcomes: bm.outcomes }));
+        .map(([key, bm]) => ({ key, title: key, market: 'h2h', outcomes: bm.outcomes }));
 
-      const homeTeam = String(ev.homeTeam ?? ev.home_team ?? ev.home ?? '');
-      const awayTeam = String(ev.awayTeam ?? ev.away_team ?? ev.away ?? '');
-
-      if (bookmakers.length >= 2 && homeTeam) {
+      if (bookmakers.length >= 2) {
+        const evItem = ev as Record<string, unknown>;
+        const league = (evItem.league as Record<string, unknown>)?.name ?? sportKey;
         events.push({
-          eventId,
-          sport:        sportKey,
-          sportTitle:   String(ev.sport ?? ev.league ?? sportKey),
-          homeTeam,
-          awayTeam,
-          commenceTime: String(ev.startTime ?? ev.commence_time ?? ev.start_time ?? new Date().toISOString()),
+          eventId, sport: sportKey,
+          sportTitle: String(league),
+          homeTeam, awayTeam,
+          commenceTime: String(evItem.date ?? evItem.commence_time ?? new Date().toISOString()),
           bookmakers,
         });
         debug.push(`  ${homeTeam} vs ${awayTeam}: ${bookmakers.length} books`);

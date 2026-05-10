@@ -29,6 +29,15 @@ const BOOKMAKER_NAMES: Record<string, string> = {
   // Exchange
   'matchbook': 'Matchbook', 'smarkets': 'Smarkets',
   'sport888': '888sport', 'marathonbet': 'MarathonBet',
+  // Found in odds-api.io
+  '1xbet': '1xBet', '22bet': '22Bet', 'bet9ja': 'Bet9ja',
+  'sportybet': 'SportyBet', 'betfairexchange': 'Betfair Exchange',
+  'betfairsportsbook': 'Betfair Sportsbook', 'betfaires': 'Betfair ES',
+  'betfairit': 'Betfair IT', 'singbet': 'SingBet', 'lowvigag': 'LowVig AG',
+  'betonlineag': 'BetOnline', 'megapari': 'MegaPari',
+  'melbet': 'MelBet', 'betwinner': 'BetWinner',
+  'tipicde': 'Tipico DE', 'bwines': 'Bwin ES', 'bwinfr': 'Bwin FR',
+  'netbet': 'NetBet', 'williamhill': 'William Hill',
 };
 
 export function canonicalName(slug: string): string {
@@ -40,6 +49,7 @@ export type AccessLevel = 'funded' | 'ng' | 'vpn';
 
 const FUNDED_BOOKS = new Set(['pinnacle', '1xbet', 'onexbet', '22bet']);
 const NG_BOOKS = new Set([
+  // odds-api.io confirmed Nigerian-accessible books
   'pinnacle', '1xbet', 'onexbet', '22bet', 'betway', 'bet9ja',
   'sportybet', 'msport', 'melbet', 'betwinner', 'marathonbet',
   'betonlineag', 'bovada', 'mybookieag', 'betus', 'sport888',
