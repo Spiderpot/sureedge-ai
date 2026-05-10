@@ -19,7 +19,16 @@ function toArbEvent(e: NormalizedOdds) {
   };
 }
 
-const SPORT_ROTATION = ['basketball_nba', 'soccer_epl', 'baseball_mlb'];
+const SPORT_ROTATION = [
+  'basketball_nba',
+  'soccer_epl',
+  'baseball_mlb',
+  'icehockey_nhl',
+  'soccer_spain_la_liga',
+  'mma_mixed_martial_arts',
+  'tennis_atp_french_open',
+  'soccer_germany_bundesliga',
+];
 const MIN_ARB_ALERT = 2.5;
 
 export async function GET(request: NextRequest) {
