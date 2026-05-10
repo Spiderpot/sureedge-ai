@@ -2,7 +2,19 @@ export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
 import { success, error } from '@/lib/api-response';
 import { detectArbitrage, sortArbs } from '@/lib/arb-detector';
-import { smartScan } from '@/lib/odds-engine';
+import { smartScan, NormalizedOdds } from '@/lib/odds-engine';
+
+function toArbEvent(e: NormalizedOdds) {
+  return {
+    id: e.eventId, sport_title: e.sportTitle,
+    home_team: e.homeTeam, away_team: e.awayTeam,
+    commence_time: e.commenceTime,
+    bookmakers: e.bookmakers.map(bm => ({
+      key: bm.key, title: bm.title,
+      markets: [{ key: bm.market, outcomes: bm.outcomes }],
+    })),
+  };
+}
 
 const SPORT_MAP: Record<string, string[]> = {
   football:   ['soccer_epl', 'soccer_spain_la_liga'],
@@ -24,7 +36,7 @@ async function handleScan(sport: string) {
     const result = await smartScan(sportKey);
     debug.push(...result.debug);
     for (const event of result.events) {
-      allArbs.push(...detectArbitrage(event, 0));
+      allArbs.push(...detectArbitrage(toArbEvent(event), 0));
     }
   }
 

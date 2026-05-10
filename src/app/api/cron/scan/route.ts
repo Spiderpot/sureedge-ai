@@ -5,7 +5,19 @@ import { NextRequest } from 'next/server';
 import { success, error } from '@/lib/api-response';
 import { sendTelegramAlert, formatArbAlert } from '@/lib/telegram';
 import { detectArbitrage, sortArbs, DetectedArb } from '@/lib/arb-detector';
-import { smartScan } from '@/lib/odds-engine';
+import { smartScan, NormalizedOdds } from '@/lib/odds-engine';
+
+function toArbEvent(e: NormalizedOdds) {
+  return {
+    id: e.eventId, sport_title: e.sportTitle,
+    home_team: e.homeTeam, away_team: e.awayTeam,
+    commence_time: e.commenceTime,
+    bookmakers: e.bookmakers.map(bm => ({
+      key: bm.key, title: bm.title,
+      markets: [{ key: bm.market, outcomes: bm.outcomes }],
+    })),
+  };
+}
 
 const SPORT_ROTATION = ['basketball_nba', 'soccer_epl', 'baseball_mlb'];
 const MIN_ARB_ALERT = 2.5;
@@ -34,7 +46,7 @@ export async function GET(request: NextRequest) {
   // Detect arbs
   let allArbs: DetectedArb[] = [];
   for (const event of result.events) {
-    allArbs.push(...detectArbitrage(event, 0));
+    allArbs.push(...detectArbitrage(toArbEvent(event), 0));
   }
   allArbs = sortArbs(allArbs);
 
