@@ -6,49 +6,64 @@ export async function GET(request: NextRequest) {
   const secret = new URL(request.url).searchParams.get('secret');
   if (process.env.CRON_SECRET && secret !== process.env.CRON_SECRET) return error('Unauthorized', 401);
 
+  const results: Record<string, unknown> = {};
+
+  // 1. Pinnacle Direct
+  const pinnUser = process.env.PINNACLE_USERNAME;
+  const pinnPass = process.env.PINNACLE_PASSWORD;
+  if (pinnUser && pinnPass) {
+    try {
+      const creds = Buffer.from(`${pinnUser}:${pinnPass}`).toString('base64');
+      const r = await fetch('https://api.pinnacle.com/v1/sports', {
+        headers: { 'Authorization': `Basic ${creds}`, 'Accept': 'application/json' },
+      });
+      const body = await r.text();
+      results.pinnacle_direct = { status: r.status, sample: body.slice(0, 200) };
+    } catch (e) { results.pinnacle_direct = `error: ${e}`; }
+  } else { results.pinnacle_direct = 'PINNACLE_USERNAME or PINNACLE_PASSWORD not set'; }
+
+  // 2. odds-api.io
   const oioKey = process.env.ODDS_API_IO_KEY;
-  if (!oioKey) return error('ODDS_API_IO_KEY not set', 500);
+  if (oioKey) {
+    try {
+      const r = await fetch(`https://api.odds-api.io/v3/events?apiKey=${oioKey}&sport=basketball&status=upcoming&limit=2`);
+      const body = await r.text();
+      results.odds_api_io = { status: r.status, sample: body.slice(0, 200) };
+    } catch (e) { results.odds_api_io = `error: ${e}`; }
+  } else { results.odds_api_io = 'ODDS_API_IO_KEY not set'; }
 
-  // Get ALL bookmakers
-  const bmRes = await fetch(`https://api.odds-api.io/v3/bookmakers?apiKey=${oioKey}`);
-  const bmData = await bmRes.json() as { name: string; active: boolean }[];
-  const active = bmData.filter(b => b.active).map(b => b.name);
+  // 3. OddsPapi
+  const papiKey = process.env.ODDSPAPI_API_KEY;
+  if (papiKey) {
+    try {
+      const r = await fetch(`https://api.oddspapi.io/v4/account?apiKey=${papiKey}`);
+      const d = await r.json();
+      const sub = d.subscriptions?.[0];
+      results.oddspapi = { status: r.status, used: `${sub?.request_count}/${sub?.request_limit}`, resets: 'June 1' };
+    } catch (e) { results.oddspapi = `error: ${e}`; }
+  } else { results.oddspapi = 'ODDSPAPI_API_KEY not set'; }
 
-  const hasPinnacle = active.some(b => b.toLowerCase().includes('pinnacle'));
-  const hasBetfair  = active.some(b => b.toLowerCase().includes('betfair'));
-  const hasBet365   = active.some(b => b.toLowerCase().includes('bet365'));
-  const has1xBet    = active.some(b => b.toLowerCase().includes('1xbet'));
-  const has22Bet    = active.some(b => b.toLowerCase().includes('22bet'));
-
-  // Build our target bookmaker string for arbitrage calls
-  const targetBooks = active.filter(b => {
-    const l = b.toLowerCase();
-    return l.includes('pinnacle') || l.includes('betfair') || l.includes('bet365') ||
-           l.includes('1xbet') || l.includes('22bet') || l.includes('singbet') ||
-           l.includes('unibet') || l.includes('williamhill') || l.includes('bwin') ||
-           l.includes('marathonbet');
-  });
-
-  // Test arbitrage endpoint with our target books
-  let arbTest: unknown = 'skipped';
-  if (targetBooks.length >= 2) {
-    const arbRes = await fetch(
-      `https://api.odds-api.io/v3/arbitrage-bets?apiKey=${oioKey}&sport=football&bookmakers=${encodeURIComponent(targetBooks.slice(0,10).join(','))}`
-    );
-    const arbRaw = await arbRes.text();
-    arbTest = { status: arbRes.status, raw: arbRaw.slice(0, 800) };
-  }
+  // 4. The Odds API
+  const oddsKey = process.env.ODDS_API_KEY;
+  if (oddsKey) {
+    try {
+      const r = await fetch(`https://api.the-odds-api.com/v4/sports?apiKey=${oddsKey}`);
+      results.the_odds_api = { status: r.status, remaining: r.headers.get('x-requests-remaining') };
+    } catch (e) { results.the_odds_api = `error: ${e}`; }
+  } else { results.the_odds_api = 'ODDS_API_KEY not set'; }
 
   return success({
     timestamp: new Date().toISOString(),
-    total_active_bookmakers: active.length,
-    has_pinnacle: hasPinnacle,
-    has_betfair:  hasBetfair,
-    has_bet365:   hasBet365,
-    has_1xbet:    has1xBet,
-    has_22bet:    has22Bet,
-    target_books_found: targetBooks,
-    arbitrage_test: arbTest,
-    all_active_bookmakers: active,
+    env: {
+      PINNACLE_USERNAME:  pinnUser  ? 'set' : 'NOT SET — add your Pinnacle login',
+      PINNACLE_PASSWORD:  pinnPass  ? 'set' : 'NOT SET — add your Pinnacle password',
+      ODDS_API_IO_KEY:    oioKey    ? `set (${oioKey.slice(0, 8)}...)` : 'NOT SET',
+      ODDSPAPI_API_KEY:   papiKey   ? `set (${papiKey.slice(0, 8)}...)` : 'NOT SET',
+      ODDS_API_KEY:       oddsKey   ? 'set' : 'NOT SET',
+      TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN ? 'set' : 'NOT SET',
+      TELEGRAM_CHAT_ID:   process.env.TELEGRAM_CHAT_ID   ? 'set' : 'NOT SET',
+    },
+    apis: results,
+    action_needed: pinnUser ? 'All configured' : 'Add PINNACLE_USERNAME and PINNACLE_PASSWORD to Vercel env vars',
   });
 }
