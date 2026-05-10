@@ -9,41 +9,27 @@ export async function GET(request: NextRequest) {
   const oioKey = process.env.ODDS_API_IO_KEY;
   if (!oioKey) return error('ODDS_API_IO_KEY not set', 500);
 
-  // Step 1: Get raw events response
-  const evRes = await fetch(`https://api.odds-api.io/v3/events?apiKey=${oioKey}&sport=basketball&limit=2`);
+  const results: Record<string, unknown> = {};
+
+  // Test 1: List available bookmakers
+  const bmRes = await fetch(`https://api.odds-api.io/v3/bookmakers?apiKey=${oioKey}`);
+  const bmRaw = await bmRes.text();
+  results.bookmakers_endpoint = { status: bmRes.status, raw: bmRaw.slice(0, 500) };
+
+  // Test 2: Get live/upcoming events with odds (not cancelled)
+  const evRes = await fetch(`https://api.odds-api.io/v3/events?apiKey=${oioKey}&sport=football&status=upcoming&limit=2`);
   const evRaw = await evRes.text();
-  
-  // Step 2: Parse and show structure
-  let evParsed: unknown = null;
-  try { evParsed = JSON.parse(evRaw); } catch { evParsed = evRaw.slice(0, 500); }
+  results.football_events = { status: evRes.status, raw: evRaw.slice(0, 400) };
 
-  // Step 3: Get first event ID from whatever structure it is
-  let eventId = '';
-  let oddsRaw = '';
-  
-  if (Array.isArray(evParsed) && evParsed.length > 0) {
-    const first = evParsed[0] as Record<string, unknown>;
-    eventId = String(first.id ?? first.eventId ?? first.event_id ?? Object.keys(first).join(','));
-  } else if (evParsed && typeof evParsed === 'object') {
-    const d = evParsed as Record<string, unknown>;
-    const items = d.data ?? d.events ?? d.results ?? d.items ?? [];
-    if (Array.isArray(items) && items.length > 0) {
-      const first = items[0] as Record<string, unknown>;
-      eventId = String(first.id ?? first.eventId ?? first.event_id ?? '');
-    }
-  }
+  // Test 3: Try the arbitrage endpoint directly
+  const arbRes = await fetch(`https://api.odds-api.io/v3/arbitrage-bets?apiKey=${oioKey}&sport=football`);
+  const arbRaw = await arbRes.text();
+  results.arbitrage_endpoint = { status: arbRes.status, raw: arbRaw.slice(0, 500) };
 
-  // Step 4: Test odds endpoint with first event
-  if (eventId) {
-    const oddsRes = await fetch(`https://api.odds-api.io/v3/odds?apiKey=${oioKey}&eventId=${eventId}&market=moneyline`);
-    oddsRaw = await oddsRes.text();
-  }
+  // Test 4: Check sports list  
+  const spRes = await fetch(`https://api.odds-api.io/v3/sports?apiKey=${oioKey}`);
+  const spRaw = await spRes.text();
+  results.sports = { status: spRes.status, raw: spRaw.slice(0, 300) };
 
-  return success({
-    timestamp: new Date().toISOString(),
-    events_status: evRes.status,
-    events_raw_sample: evRaw.slice(0, 1000),
-    event_id_found: eventId,
-    odds_raw_sample: oddsRaw.slice(0, 1000),
-  });
+  return success({ timestamp: new Date().toISOString(), results });
 }
