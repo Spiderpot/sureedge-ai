@@ -77,48 +77,74 @@ async function fetchOddsApiIo(sportKey: string, debug: string[]): Promise<Normal
   if (!sport) { debug.push(`odds-api.io: unknown sport ${sportKey}`); return []; }
 
   try {
-    const url = `https://api.odds-api.io/v1/odds?` + new URLSearchParams({
-      apiKey,
-      sport,
-      regions:    'uk,eu,us',
-      markets:    'h2h',
-      oddsFormat: 'decimal',
+    // Step 1: Get events for this sport (v3 endpoint)
+    const eventsUrl = `https://api.odds-api.io/v3/events?` + new URLSearchParams({
+      apiKey, sport, limit: '20',
     });
 
-    const res = await fetch(url, { cache: 'no-store' });
-
-    if (res.status === 429) {
-      debug.push('odds-api.io: rate limit — hourly quota used, resets next hour');
-      return [];
-    }
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      debug.push(`odds-api.io: ${res.status} — ${body.slice(0, 150)}`);
+    const eventsRes = await fetch(eventsUrl, { cache: 'no-store' });
+    if (eventsRes.status === 429) { debug.push('odds-api.io: rate limit hit'); return []; }
+    if (!eventsRes.ok) {
+      const body = await eventsRes.text().catch(() => '');
+      debug.push(`odds-api.io events: ${eventsRes.status} — ${body.slice(0, 200)}`);
       return [];
     }
 
-    const data = await res.json();
-    const items = Array.isArray(data) ? data : (data.data || data.events || []);
+    const eventsData = await eventsRes.json();
+    const eventItems = Array.isArray(eventsData) ? eventsData : (eventsData.data || eventsData.events || []);
+    debug.push(`odds-api.io: ${eventItems.length} events found`);
+    if (eventItems.length === 0) return [];
 
-    const events: NormalizedOdds[] = items.map((item: Record<string, unknown>) => ({
-      eventId:      String(item.id || item.event_id || `oio_${Date.now()}_${Math.random()}`),
-      sport:        sportKey,
-      sportTitle:   String(item.sport_title || item.sport || sportKey),
-      homeTeam:     String(item.home_team || item.home || ''),
-      awayTeam:     String(item.away_team || item.away || ''),
-      commenceTime: String(item.commence_time || item.start_time || new Date().toISOString()),
-      bookmakers:   ((item.bookmakers || []) as Record<string, unknown>[]).map((bm) => ({
-        key:     String(bm.key || bm.id || '').toLowerCase(),
-        title:   String(bm.title || bm.name || ''),
-        market:  'h2h',
-        outcomes: (((bm.markets as Record<string, unknown>[])?.[0]?.outcomes) as { name: string; price: number }[] || []).map((o) => ({
-          name: o.name || '', price: o.price || 0,
-        })),
-      })).filter((bm: { outcomes: { name: string; price: number }[] }) => bm.outcomes.length >= 2),
-    })).filter((e: NormalizedOdds) => e.homeTeam && e.bookmakers.length >= 2);
+    // Step 2: Get odds for top 3 events
+    const topEvents = eventItems.slice(0, 3);
+    const normalizedEvents: NormalizedOdds[] = [];
 
-    debug.push(`odds-api.io: ${events.length} events, ${events.reduce((s, e) => s + e.bookmakers.length, 0)} bookmakers`);
-    return events;
+    for (const evt of topEvents) {
+      const eventId = String(evt.id || evt.eventId || '');
+      if (!eventId) continue;
+
+      const oddsUrl = `https://api.odds-api.io/v3/odds?` + new URLSearchParams({
+        apiKey, eventId, market: 'moneyline',
+      });
+
+      const oddsRes = await fetch(oddsUrl, { cache: 'no-store' });
+      if (!oddsRes.ok) { debug.push(`odds-api.io odds ${eventId}: ${oddsRes.status}`); continue; }
+
+      const oddsData = await oddsRes.json();
+      const oddsItems = Array.isArray(oddsData) ? oddsData : (oddsData.data || oddsData.odds || []);
+
+      // Build bookmaker list from odds response
+      const bookmakerMap: Record<string, { name: string; outcomes: { name: string; price: number }[] }> = {};
+      for (const odd of oddsItems) {
+        const bmName = String(odd.bookmaker || odd.sportsbook || '');
+        const bmKey = bmName.toLowerCase().replace(/\s+/g, '');
+        if (!bmKey) continue;
+        if (!bookmakerMap[bmKey]) bookmakerMap[bmKey] = { name: bmName, outcomes: [] };
+        if (odd.outcome && odd.odds) {
+          bookmakerMap[bmKey].outcomes.push({ name: String(odd.outcome), price: Number(odd.odds) });
+        }
+      }
+
+      const bookmakers = Object.entries(bookmakerMap)
+        .filter(([, bm]) => bm.outcomes.length >= 2)
+        .map(([key, bm]) => ({ key, title: bm.name, market: 'h2h', outcomes: bm.outcomes }));
+
+      if (bookmakers.length >= 2) {
+        normalizedEvents.push({
+          eventId,
+          sport:        sportKey,
+          sportTitle:   String(evt.sport || evt.league || sportKey),
+          homeTeam:     String(evt.homeTeam || evt.home_team || evt.home || ''),
+          awayTeam:     String(evt.awayTeam || evt.away_team || evt.away || ''),
+          commenceTime: String(evt.startTime || evt.commence_time || evt.start_time || new Date().toISOString()),
+          bookmakers,
+        });
+        debug.push(`  ${evt.homeTeam || evt.home_team} vs ${evt.awayTeam || evt.away_team}: ${bookmakers.length} bookmakers`);
+      }
+    }
+
+    debug.push(`odds-api.io: ${normalizedEvents.length} events normalized`);
+    return normalizedEvents;
   } catch (err) {
     debug.push(`odds-api.io: error — ${err}`);
     return [];
@@ -136,7 +162,7 @@ async function fetchSharpAPI(sportKey: string, debug: string[]): Promise<Normali
 
   try {
     // SharpAPI REST endpoint — returns moneyline odds
-    const url = `https://sharpapi.io/api/v1/sport/${sport}/odds`;
+    const url = `https://api.sharpapi.io/api/v1/odds?sport=${sport}&market=moneyline`;
     const res = await fetch(url, {
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Accept': 'application/json' },
       cache: 'no-store',
