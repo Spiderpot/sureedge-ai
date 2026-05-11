@@ -42,7 +42,7 @@ export const BOOKMAKERS: Record<string, BookmakerInfo> = {
     access:   'funded',
     url:      'https://1xbet.ng',
     deposit:  'Naira, bank transfer, USSD',
-    apiSlugs: ['1xbet', 'onexbet', '1x bet', '1xbet ng', '1xbet.ng'],
+    apiSlugs: ['1xbet', 'onexbet', 'onexbet_ng', '1x bet', '1xbet ng', '1xbet.ng'],
   },
   '22bet': {
     name:     '22Bet',
@@ -51,6 +51,14 @@ export const BOOKMAKERS: Record<string, BookmakerInfo> = {
     url:      'https://22bet.ng',
     deposit:  'Naira, bank transfer, crypto',
     apiSlugs: ['22bet', '22 bet', '22bet ng'],
+  },
+  betfair: {
+    name:     'Betfair',
+    role:     'SOFT',
+    access:   'vpn',
+    url:      'https://betfair.com',
+    deposit:  'Skrill, Neteller',
+    apiSlugs: ['betfair', 'betfair_ex_eu', 'betfair_ex_uk', 'betfair_ex_us', 'betfair_ex', 'betfair exchange'],
   },
 };
 

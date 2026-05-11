@@ -176,9 +176,9 @@ async function fetchTheOddsAPI(sport: string, debug: string[]): Promise<Normaliz
   const key = process.env.ODDS_API_KEY;
   if (!key) return [];
   try {
-    const res = await fetch(`https://api.the-odds-api.com/v4/sports/${sport}/odds?` + new URLSearchParams({ apiKey: key, regions: 'us,uk,eu,au', markets: 'h2h', oddsFormat: 'decimal', dateFormat: 'iso' }), { cache: 'no-store' });
+    const res = await fetch(`https://api.the-odds-api.com/v4/sports/${sport}/odds?` + new URLSearchParams({ apiKey: key, regions: 'eu,uk', markets: 'h2h', oddsFormat: 'decimal', dateFormat: 'iso' }), { cache: 'no-store' });
     const remaining = parseInt(res.headers.get('x-requests-remaining') ?? '0', 10);
-    if (remaining < 5) { debug.push(`The Odds API: paused (${remaining} left)`); return []; }
+    if (remaining < 20) { debug.push(`The Odds API: low credits (${remaining} left)`); }
     if (!res.ok) return [];
     const data = await res.json() as Record<string, unknown>[];
     debug.push(`The Odds API: ${data.length} events (${remaining} left)`);
@@ -203,17 +203,24 @@ export async function smartScan(sport: string): Promise<ScanResult> {
   const sources: string[] = [];
   let events: NormalizedOdds[] = [];
 
-  // Try all in parallel for speed
-  const [papiEvents, oioEvents] = await Promise.all([
-    fetchOddsPapi(sport, debug),
-    fetchOddsApiIo(sport, debug),
-  ]);
+  // PRIMARY: The Odds API (499 credits, EU region has Pinnacle+1xBet+Betfair+Bet365)
+  // Cost: 1 credit per region per sport. Using eu only = 1 credit per scan.
+  const todaEvents = await fetchTheOddsAPI(sport, debug);
+  if (todaEvents.length > 0) {
+    events = todaEvents;
+    sources.push('The Odds API');
+  }
 
-  if (papiEvents.length > 0) { events = papiEvents; sources.push('OddsPapi'); }
-  else if (oioEvents.length > 0) { events = oioEvents; sources.push('odds-api.io'); }
-  else {
-    const todaEvents = await fetchTheOddsAPI(sport, debug);
-    if (todaEvents.length > 0) { events = todaEvents; sources.push('The Odds API'); }
+  // SECONDARY: OddsPapi (exhausted, resets June 1)
+  if (events.length === 0) {
+    const papiEvents = await fetchOddsPapi(sport, debug);
+    if (papiEvents.length > 0) { events = papiEvents; sources.push('OddsPapi'); }
+  }
+
+  // TERTIARY: odds-api.io (no Pinnacle but has 1xBet+Bet365)
+  if (events.length === 0) {
+    const oioEvents = await fetchOddsApiIo(sport, debug);
+    if (oioEvents.length > 0) { events = oioEvents; sources.push('odds-api.io'); }
   }
 
   debug.push(`Total: ${events.length} events [${sources.join(' + ') || 'none'}]`);
