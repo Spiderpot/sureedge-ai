@@ -6,47 +6,73 @@ export async function GET(request: NextRequest) {
   const secret = new URL(request.url).searchParams.get('secret');
   if (process.env.CRON_SECRET && secret !== process.env.CRON_SECRET) return error('Unauthorized', 401);
 
-  const oioKey = process.env.ODDS_API_IO_KEY;
-  if (!oioKey) return error('ODDS_API_IO_KEY not set', 500);
-
-  const sports = ['football', 'basketball', 'baseball', 'ice-hockey', 'tennis', 'mma'];
   const results: Record<string, unknown> = {};
 
-  for (const sport of sports) {
-    const r = await fetch(
-      `https://api.odds-api.io/v3/events?apiKey=${oioKey}&sport=${sport}&status=upcoming&limit=5`,
-      { cache: 'no-store' }
-    ).catch(() => null);
-    if (!r) continue;
+  // Check The Odds API bookmakers list (0 credits used - uses /sports not /odds)
+  const oddsKey = process.env.ODDS_API_KEY;
+  if (oddsKey) {
+    try {
+      // Check available bookmakers - costs 0 credits
+      const r = await fetch(`https://api.the-odds-api.com/v4/sports?apiKey=${oddsKey}`);
+      const remaining = r.headers.get('x-requests-remaining');
+      const used = r.headers.get('x-requests-used');
 
-    const data = await r.json().catch(() => []) as Record<string, unknown>[];
-    const count = Array.isArray(data) ? data.length : 0;
-    if (count === 0) { results[sport] = 0; continue; }
+      // Also verify Pinnacle by checking their bookmakers endpoint
+      const bmRes = await fetch(`https://api.the-odds-api.com/v4/sports/basketball_nba/odds?apiKey=${oddsKey}&regions=eu&markets=h2h&oddsFormat=decimal&dateFormat=iso`);
+      const bmRemaining = bmRes.headers.get('x-requests-remaining');
 
-    // Test odds on first event
-    const first = data[0];
-    const eventId = String(first.id ?? '');
-    const oddsR = await fetch(
-      `https://api.odds-api.io/v3/odds?apiKey=${oioKey}&eventId=${eventId}&market=moneyline&bookmakers=1xbet,Bet365,Betfair Exchange,22Bet,Betway,Bet9ja,SportyBet`,
-      { cache: 'no-store' }
-    ).catch(() => null);
+      if (bmRes.ok) {
+        const data = await bmRes.json() as Record<string, unknown>[];
+        const allBooks = new Set<string>();
+        for (const ev of data.slice(0, 3)) {
+          for (const bm of (ev.bookmakers as Record<string, unknown>[] ?? [])) {
+            allBooks.add(String(bm.key));
+          }
+        }
+        const hasPinnacle = [...allBooks].some(b => b.includes('pinnacle'));
+        results.the_odds_api = {
+          status: bmRes.status,
+          credits_used: used,
+          credits_remaining: bmRemaining,
+          eu_bookmakers_found: [...allBooks],
+          has_pinnacle: hasPinnacle,
+          verdict: hasPinnacle ? '✅ PINNACLE CONFIRMED in EU region' : '❌ No Pinnacle in EU results',
+        };
+      } else {
+        results.the_odds_api = { status: bmRes.status, remaining, note: 'Could not fetch odds' };
+      }
+    } catch (e) { results.the_odds_api = `error: ${e}`; }
+  }
 
-    const oddsData = oddsR ? await oddsR.json().catch(() => []) as Record<string, unknown>[] : [];
-    const books = Array.isArray(oddsData) 
-      ? [...new Set(oddsData.map(o => String(o.bookmaker ?? '')))] .filter(Boolean)
-      : [];
+  // OddsPapi status
+  const papiKey = process.env.ODDSPAPI_API_KEY;
+  if (papiKey) {
+    try {
+      const r = await fetch(`https://api.oddspapi.io/v4/account?apiKey=${papiKey}`);
+      const d = await r.json();
+      const sub = d.subscriptions?.[0];
+      results.oddspapi = { used: `${sub?.request_count}/${sub?.request_limit}`, resets: 'June 1' };
+    } catch (e) { results.oddspapi = `error: ${e}`; }
+  }
 
-    results[sport] = {
-      events: count,
-      sample: `${first.home} vs ${first.away} (${String(first.date ?? '').slice(0, 10)})`,
-      books_returning_odds: books,
-      arb_potential: books.length >= 2 ? '✅ Can detect arbs' : '⚠️ Need more books',
-    };
+  // odds-api.io status
+  const oioKey = process.env.ODDS_API_IO_KEY;
+  if (oioKey) {
+    try {
+      const r = await fetch(`https://api.odds-api.io/v3/events?apiKey=${oioKey}&sport=football&status=upcoming&limit=3`);
+      const data = await r.json() as unknown[];
+      results.odds_api_io = { status: r.status, events: Array.isArray(data) ? data.length : 0, resets: 'hourly' };
+    } catch (e) { results.odds_api_io = `error: ${e}`; }
   }
 
   return success({
     timestamp: new Date().toISOString(),
-    note: 'OddsPapi resets June 1 — will add Pinnacle. Until then: 1xBet+Betfair+Bet365 arbs via odds-api.io',
-    sports_with_events: results,
+    env: {
+      ODDS_API_KEY:     oddsKey  ? 'set' : 'NOT SET',
+      ODDSPAPI_API_KEY: papiKey  ? `set (${papiKey?.slice(0, 8)}...)` : 'NOT SET',
+      ODDS_API_IO_KEY:  oioKey   ? `set (${oioKey?.slice(0, 8)}...)` : 'NOT SET',
+      TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN ? 'set' : 'NOT SET',
+    },
+    findings: results,
   });
 }
