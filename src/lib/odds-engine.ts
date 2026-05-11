@@ -31,7 +31,7 @@ export interface ScanResult {
 
 // 60-second cache
 const cache = new Map<string, { data: NormalizedOdds[]; ts: number }>();
-const getCached = (k: string) => { const e = cache.get(k); return e && Date.now() - e.ts < 60000 ? e.data : null; };
+const getCached = (k: string) => { const e = cache.get(k); return e && Date.now() - e.ts < 30000 ? e.data : null; };
 const setCache  = (k: string, d: NormalizedOdds[]) => { cache.set(k, { data: d, ts: Date.now() }); };
 
 // Sport mappings

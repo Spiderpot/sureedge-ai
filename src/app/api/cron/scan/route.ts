@@ -29,7 +29,9 @@ const SPORT_ROTATION = [
   'tennis_atp_french_open',
   'soccer_germany_bundesliga',
 ];
-const MIN_ARB_ALERT = 2.5;
+// Different thresholds based on access
+const MIN_ARB_YOUR_BOOKS = 0.5;  // Alert when both bookmakers are YOUR funded accounts
+const MIN_ARB_VPN = 2.5;         // Higher threshold needed for VPN arbs (harder to execute)
 
 export async function GET(request: NextRequest) {
   const authHeader  = request.headers.get('authorization');
@@ -63,9 +65,8 @@ export async function GET(request: NextRequest) {
   let telegramSent = 0;
   for (const arb of allArbs) {
     if (!arb.isGenuineArb) continue;
-    if (arb.tier === 'EXECUTE' && arb.arbPercentage >= MIN_ARB_ALERT) {
-      if (await sendTelegramAlert(formatArbAlert(arb))) telegramSent++;
-    } else if (arb.tier === 'VERIFY' || arb.tier === 'SUSPICIOUS') {
+    const minPct = arb.accessTag === '✅ YOUR BOOKS' ? MIN_ARB_YOUR_BOOKS : MIN_ARB_VPN;
+    if (arb.isGenuineArb && arb.arbPercentage >= minPct) {
       if (await sendTelegramAlert(formatArbAlert(arb))) telegramSent++;
     }
   }
