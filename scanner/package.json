@@ -1,0 +1,21 @@
+{
+  "name": "sureedge-scanner",
+  "version": "1.0.0",
+  "description": "SureEdge AI Continuous Scanner Service",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev":   "ts-node index.ts",
+    "pm2":   "pm2 start ecosystem.config.js",
+    "pm2:stop":    "pm2 stop sureedge-scanner",
+    "pm2:restart": "pm2 restart sureedge-scanner",
+    "pm2:logs":    "pm2 logs sureedge-scanner"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0",
+    "ts-node": "^10.0.0"
+  }
+}
