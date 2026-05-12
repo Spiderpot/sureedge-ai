@@ -58,7 +58,7 @@ export const BOOKMAKERS: Record<string, BookmakerInfo> = {
     access:   'vpn',
     url:      'https://betfair.com',
     deposit:  'Skrill, Neteller',
-    apiSlugs: ['betfair', 'betfair_ex_eu', 'betfair_ex_uk', 'betfair_ex_us', 'betfair_ex', 'betfair exchange'],
+    apiSlugs: ['betfair', 'betfair_ex_eu', 'betfair_ex_uk', 'betfair_ex_us', 'betfair_ex', 'betfair exchange', 'betfair_sb_uk', 'betfairsportsbook'],
   },
 };
 

@@ -188,7 +188,7 @@ async function fetchTheOddsAPI(sport: string, debug: string[]): Promise<Normaliz
   const key = process.env.ODDS_API_KEY;
   if (!key) return [];
   try {
-    const res = await fetch(`https://api.the-odds-api.com/v4/sports/${sport}/odds?` + new URLSearchParams({ apiKey: key, regions: 'eu,uk', markets: 'h2h', oddsFormat: 'decimal', dateFormat: 'iso' }), { cache: 'no-store' });
+    const res = await fetch(`https://api.the-odds-api.com/v4/sports/${sport}/odds?` + new URLSearchParams({ apiKey: key, regions: 'us,uk,eu', markets: 'h2h', oddsFormat: 'decimal', dateFormat: 'iso' }), { cache: 'no-store' });
     const remaining = parseInt(res.headers.get('x-requests-remaining') ?? '0', 10);
     if (remaining < 20) { debug.push(`The Odds API: low credits (${remaining} left)`); }
     if (!res.ok) return [];
