@@ -60,6 +60,22 @@ export const BOOKMAKERS: Record<string, BookmakerInfo> = {
     deposit:  'Skrill, Neteller',
     apiSlugs: ['betfair', 'betfair_ex_eu', 'betfair_ex_uk', 'betfair_ex_us', 'betfair_ex', 'betfair exchange', 'betfair_sb_uk', 'betfairsportsbook'],
   },
+  betway: {
+    name:     'Betway',
+    role:     'SOFT',
+    access:   'ng',
+    url:      'https://betway.com.ng',
+    deposit:  'Naira, bank transfer, card',
+    apiSlugs: ['betway', 'betway_ng'],
+  },
+  marathonbet: {
+    name:     'MarathonBet',
+    role:     'SOFT',
+    access:   'ng',
+    url:      'https://marathonbet.com',
+    deposit:  'Crypto, e-wallets',
+    apiSlugs: ['marathonbet'],
+  },
 };
 
 // ─── Slug → canonical key ────────────────────────────────────────────────
