@@ -17,47 +17,63 @@ export async function sendTelegramAlert(msg: string): Promise<boolean> {
 }
 
 export function formatArbAlert(arb: DetectedArb): string {
-  const emoji = arb.tier === 'EXECUTE'    ? '\u{1F525}' :
-                arb.tier === 'VERIFY'     ? '\u26A0\uFE0F' :
-                arb.tier === 'SUSPICIOUS' ? '\u{1F6A8}' : '\u{1F7E1}';
+  const now = new Date().toISOString();
 
-  const pinnTag = arb.hasPinnacle ? ' \u{1F4A0} PINNACLE' : '';
+  // Header based on tier
+  const header = arb.tier === 'EXECUTE'    ? '\u{1F6A8} SUREEDGE LIVE ALERT' :
+                 arb.tier === 'VERIFY'     ? '\u26A0\uFE0F SUREEDGE ALERT — VERIFY FIRST' :
+                 arb.tier === 'SUSPICIOUS' ? '\u{1F534} SUSPICIOUS — DO NOT BET' :
+                                             '\u{1F4CA} SUREEDGE DIVERGENCE ALERT';
 
-  let msg = `${emoji} <b>${arb.tier} +${arb.arbPercentage.toFixed(2)}%</b>${pinnTag}\n`;
+  const voltEmoji = arb.volatility === 'HIGH' ? '\u{1F525}' :
+                    arb.volatility === 'MEDIUM' ? '\u26A1' : '\u{1F4C9}';
+
+  const divType = arb.divergenceType === 'PINNACLE_LAG'    ? 'Pinnacle lag detected' :
+                  arb.divergenceType === 'SHARP_MOVEMENT'  ? 'Sharp movement detected' :
+                  arb.divergenceType === 'ARBITRAGE'       ? 'True arbitrage found' :
+                  'Price divergence detected';
+
+  let msg = `<b>${header}</b>\n\n`;
   msg += `${arb.accessTag}\n`;
   msg += `\u{1F3C6} <b>${arb.match}</b>\n`;
-  msg += `${arb.sport} | Confidence: ${arb.confidence}%\n`;
-  msg += `${arb.tierLabel}\n\n`;
+  msg += `${arb.sport}\n\n`;
+
+  // Intelligence summary
+  msg += `\u{1F9E0} <b>EDGE SCORE: ${arb.edgeScore}/100</b>\n`;
+  msg += `${voltEmoji} Volatility: <b>${arb.volatility}</b>\n`;
+  msg += `\u{1F4CA} Divergence: <b>+${arb.arbPercentage.toFixed(2)}%</b>\n`;
+  msg += `\u2728 Signal: ${divType}\n`;
+  msg += `\u{1F513} Confidence: ${arb.confidence}%\n`;
+  msg += `\u{23F1} Freshness: ${now.slice(11, 19)} UTC\n\n`;
 
   if (arb.tier !== 'SUSPICIOUS') {
-    msg += `\u{1F4B0} <b>PROFIT: $${arb.profit.toFixed(2)} on $10</b>\n\n`;
-  }
+    if (arb.isGenuineArb) {
+      msg += `\u{1F4B0} <b>GUARANTEED PROFIT: $${arb.profit.toFixed(2)} on $10</b>\n\n`;
+    }
 
-  for (const w of arb.warnings) msg += `\u26A0\uFE0F ${w}\n`;
-  if (arb.warnings.length) msg += '\n';
-
-  if (arb.tier !== 'SUSPICIOUS') {
-    // Sort: longer odds first (place first — more likely to move)
+    msg += `<b>PLACE BETS:</b>\n`;
     const sorted = [...arb.outcomes].sort((a, b) => b.odds - a.odds);
-    msg += '<b>PLACE BETS:</b>\n';
     for (let i = 0; i < sorted.length; i++) {
-      const o = sorted[i];
-      const step = i === 0 ? '\u{1F534} BET 1 (FIRST)' : `\u{1F535} BET ${i + 1}`;
-      const acc  = o.isFunded ? '\u2705' : '\u{1F310}';
-      msg += `\n${step} ${acc} <b>${o.bookmaker}</b>${o.isPinnacle ? ' \u{1F4A0}' : ''}\n`;
+      const o   = sorted[i];
+      const acc = o.isFunded ? '\u2705' : '\u{1F310}';
+      const pin = o.isPinnacle ? ' \u{1F4A0}' : '';
+      msg += `\n${i === 0 ? '\u{1F534} BET 1 (FIRST)' : `\u{1F535} BET ${i + 1}`} ${acc}${pin}\n`;
+      msg += `<b>${o.bookmaker}</b>\n`;
       msg += `${o.outcome} @ <b>${o.odds}</b>\n`;
       msg += `Stake: <b>$${o.stakeRounded}</b> \u2192 $${o.potentialReturn.toFixed(2)}\n`;
       if (o.deposit) msg += `${o.deposit}\n`;
       if (o.url)     msg += `${o.url}\n`;
     }
   } else {
-    msg += '<b>DO NOT BET — verify on live sites:</b>\n';
+    msg += `<b>DO NOT BET — verify on live sites first:</b>\n`;
     for (const o of arb.outcomes) {
-      msg += `${o.bookmaker}: ${o.outcome} @ ${o.odds}\n${o.url}\n`;
+      msg += `${o.bookmaker}: ${o.outcome} @ ${o.odds}\n`;
+      if (o.url) msg += `${o.url}\n`;
     }
   }
 
-  msg += `\n\u{23F0} ~5 min window\n`;
+  for (const w of arb.warnings) msg += `\n\u26A0\uFE0F ${w}`;
+  msg += `\n\n\u23F0 ~5 min window\n`;
   msg += `\u{1F517} <a href="https://sureedge-ai.vercel.app">SureEdge AI</a>`;
   return msg;
 }

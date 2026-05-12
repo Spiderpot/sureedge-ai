@@ -36,10 +36,22 @@ const setCache  = (k: string, d: NormalizedOdds[]) => { cache.set(k, { data: d, 
 
 // Sport mappings
 const ODDSPAPI_SPORT_IDS: Record<string, number> = {
-  'soccer_epl': 10, 'soccer_spain_la_liga': 10, 'soccer_italy_serie_a': 10,
-  'soccer_germany_bundesliga': 10, 'soccer_france_ligue_one': 10, 'soccer_uefa_champs_league': 10,
-  'basketball_nba': 11, 'baseball_mlb': 13, 'icehockey_nhl': 15,
-  'tennis_atp_french_open': 12, 'mma_mixed_martial_arts': 20,
+  // HIGH VOLATILITY (best for divergence detection)
+  'table_tennis': 25,              // Most volatile, fastest line movement
+  'mma_mixed_martial_arts': 20,    // High volatility, Pinnacle vs soft divergence
+  'basketball_nba': 11,            // Live volatility, Pinnacle sharp
+  'icehockey_nhl': 15,             // Good divergence frequency
+  'tennis_atp_french_open': 12,    // French Open now, Pinnacle very sharp
+  'tennis_wta_french_open': 12,
+  // MODERATE — smaller leagues more inefficient than major
+  'baseball_mlb': 13,
+  'soccer_spain_la_liga': 10,
+  'soccer_germany_bundesliga': 10,
+  'soccer_italy_serie_a': 10,
+  'soccer_france_ligue_one': 10,
+  // LOWER PRIORITY — too efficient
+  'soccer_epl': 10,
+  'soccer_uefa_champs_league': 10,
 };
 
 const OIO_SPORT_SLUGS: Record<string, string> = {

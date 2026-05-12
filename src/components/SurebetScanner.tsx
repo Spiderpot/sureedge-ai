@@ -39,6 +39,9 @@ interface Surebet {
   hasPinnacle?: boolean;
   hasSharpSoft?: boolean;
   priorityScore?: number;
+  edgeScore?: number;
+  volatility?: string;
+  divergenceType?: string;
   outcomes: SurebetOutcome[];
   status: string;
   detectedAt: string;
@@ -164,8 +167,17 @@ function SurebetCard({ sb, rank, onCalculate, onExecute }: { sb: Surebet; rank: 
           <div className={`text-xl font-bold ${arbColor(sb.arbPercentage)}`}>
             {sb.arbPercentage > 0 ? '+' : ''}{sb.arbPercentage.toFixed(3)}%
           </div>
+          {sb.edgeScore !== undefined && (
+            <div className={`text-xs font-bold px-2 py-0.5 rounded-full mt-1 ${
+              sb.edgeScore >= 70 ? 'bg-emerald-500/20 text-emerald-400' :
+              sb.edgeScore >= 40 ? 'bg-yellow-500/20 text-yellow-400' :
+              'bg-white/10 text-gray-400'
+            }`}>
+              EDGE {sb.edgeScore}/100
+            </div>
+          )}
           <div className="text-[10px] text-gray-500 uppercase tracking-wider">
-            {sb.isGenuineArb ? 'Guaranteed Profit' : 'Near-Arb'}
+            {sb.isGenuineArb ? 'Guaranteed Profit' : 'Divergence'}
           </div>
         </div>
       </div>
@@ -340,8 +352,8 @@ export default function SurebetScanner() {
     <div className="space-y-5">
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Surebet Scanner</h1>
-          <p className="text-gray-400 text-sm mt-1">Scan bookmakers for arbitrage opportunities in real-time</p>
+          <h1 className="text-2xl font-bold">AI Market Intelligence</h1>
+          <p className="text-gray-400 text-sm mt-1">Real-time sharp price divergence detection across premium bookmakers</p>
         </div>
         <div className="flex items-center gap-3">
           {scanning && (
@@ -362,7 +374,7 @@ export default function SurebetScanner() {
           <motion.button whileTap={{ scale: 0.95 }} onClick={scan} disabled={loading}
             className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white font-semibold px-5 py-2.5 rounded-lg transition-colors">
             {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-            {loading ? 'Scanning...' : 'Scan Now'}
+            {loading ? 'Detecting...' : 'Scan Markets'}
           </motion.button>
 
           <div className="flex flex-wrap items-center gap-1.5">
@@ -464,7 +476,7 @@ export default function SurebetScanner() {
               <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center mb-4">
                 <Search className="w-8 h-8 text-gray-600" />
               </div>
-              <p className="text-sm text-gray-400 mb-1">No opportunities found yet</p>
+              <p className="text-sm text-gray-400 mb-1">Scanning live markets...</p>
               <p className="text-xs text-gray-600 max-w-xs text-center">
                 Click <span className="text-emerald-400">Scan Now</span> to search. Best results during live games and 30 min before kickoff.
               </p>
