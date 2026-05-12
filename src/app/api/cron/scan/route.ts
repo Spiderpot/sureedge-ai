@@ -24,10 +24,13 @@ const SPORT_ROTATION = [
   'soccer_epl',
   'baseball_mlb',
   'icehockey_nhl',
-  'soccer_spain_la_liga',
-  'mma_mixed_martial_arts',
   'tennis_atp_french_open',
+  'mma_mixed_martial_arts',
+  'soccer_spain_la_liga',
   'soccer_germany_bundesliga',
+  'soccer_italy_serie_a',
+  'soccer_france_ligue_one',
+  'soccer_uefa_champs_league',
 ];
 // Different thresholds based on access
 const MIN_ARB_YOUR_BOOKS = 0.5;  // Alert when both bookmakers are YOUR funded accounts
